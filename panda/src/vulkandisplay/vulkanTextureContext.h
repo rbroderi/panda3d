@@ -17,8 +17,10 @@
 #include "config_vulkandisplay.h"
 #include "textureContext.h"
 #include "small_vector.h"
+#include "vulkanMemoryPage.h"
 
 class VulkanCommandBuffer;
+class VulkanFrameData;
 
 /**
  * Manages a Vulkan image and device memory.
@@ -53,8 +55,27 @@ public:
   uint32_t _array_layers = 1;
   VkImageAspectFlags _aspect_mask = 0;
   bool _generate_mipmaps = false;
-  bool _pack_bgr8 = false;
-  bool _swap_bgra8 = false;
+
+  // How the RAM image's texels differ from the image's.  Panda keeps colour
+  // in BGR(A) order whatever the component type, so an RGB-ordered image
+  // needs the first and third components swapped, and most GPUs lack
+  // three-component formats, so RGB is stored as RGBA with an opaque alpha.
+  // A T_float texture in a 16-bit format has 32-bit floats in RAM and half
+  // floats in the image, as OpenGL converts them.  _num_components and
+  // _component_width describe the RAM image; _alpha_one is 1 in its type.
+  struct TexelConversion {
+    bool _swap_rb = false;
+    bool _pack_rgb = false;
+    bool _float_to_half = false;
+    int _num_components = 0;
+    int _component_width = 1;
+    uint32_t _alpha_one = 0;
+
+    bool needs_conversion() const { return _swap_rb || _pack_rgb || _float_to_half; }
+    size_t get_image_size(size_t ram_size) const;
+    void convert(void *dest, const void *src, size_t ram_size, bool to_image) const;
+  };
+  TexelConversion _conversion;
   bool _supports_render_to_texture = false;
 
   // Just for debugging.  It's -1 if it's not a swapchain image.

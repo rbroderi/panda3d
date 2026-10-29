@@ -1238,6 +1238,85 @@ prepare_texture(Texture *texture) {
 }
 
 /**
+ * Returns how texels of a RAM image in this texture format and component
+ * type must be converted to and from an image of the given VkFormat.  Panda
+ * keeps colour in BGR(A) order, as OpenGL reads it with GL_BGR(A), so an
+ * RGB-ordered image needs its red and blue swapped on the way in and out
+ * (the integer formats are RGB in OpenGL too).  pack_rgb says the image has
+ * four components where the RAM image has three.
+ */
+static VulkanTextureContext::TexelConversion
+make_texel_conversion(Texture::Format tex_format, Texture::ComponentType type,
+                      int num_components, int component_width,
+                      VkFormat format, bool pack_rgb) {
+  bool ram_is_bgr = false;
+  switch (tex_format) {
+  case Texture::F_rgb:
+  case Texture::F_rgb8:
+  case Texture::F_rgb12:
+  case Texture::F_rgb16:
+  case Texture::F_rgb32:
+  case Texture::F_srgb:
+  case Texture::F_rgba:
+  case Texture::F_rgbm:
+  case Texture::F_rgba8:
+  case Texture::F_rgba12:
+  case Texture::F_rgba16:
+  case Texture::F_rgba32:
+  case Texture::F_srgb_alpha:
+    ram_is_bgr = true;
+    break;
+  default:
+    break;
+  }
+  bool image_is_rgb =
+    (format >= VK_FORMAT_R8G8B8_UNORM && format <= VK_FORMAT_R8G8B8_SRGB) ||
+    (format >= VK_FORMAT_R8G8B8A8_UNORM && format <= VK_FORMAT_R8G8B8A8_SRGB) ||
+    (format >= VK_FORMAT_R16G16B16_UNORM && format <= VK_FORMAT_R16G16B16A16_SFLOAT) ||
+    (format >= VK_FORMAT_R32G32B32_UINT && format <= VK_FORMAT_R32G32B32A32_SFLOAT);
+
+  VulkanTextureContext::TexelConversion conversion;
+  conversion._swap_rb = ram_is_bgr && image_is_rgb && num_components >= 3;
+  conversion._pack_rgb = pack_rgb;
+  conversion._float_to_half = type == Texture::T_float &&
+    (format == VK_FORMAT_R16_SFLOAT || format == VK_FORMAT_R16G16_SFLOAT ||
+     format == VK_FORMAT_R16G16B16_SFLOAT || format == VK_FORMAT_R16G16B16A16_SFLOAT);
+  conversion._num_components = num_components;
+  conversion._component_width = component_width;
+  switch (type) {
+  case Texture::T_unsigned_byte:
+    conversion._alpha_one = 0xff;
+    break;
+  case Texture::T_unsigned_short:
+    conversion._alpha_one = 0xffff;
+    break;
+  case Texture::T_half_float:
+    conversion._alpha_one = 0x3c00;
+    break;
+  case Texture::T_float:
+    conversion._alpha_one = 0x3f800000;
+    break;
+  case Texture::T_byte:
+    conversion._alpha_one = 0x7f;
+    break;
+  case Texture::T_short:
+    conversion._alpha_one = 0x7fff;
+    break;
+  default:
+    conversion._alpha_one = 1;
+    break;
+  }
+  return conversion;
+}
+
+static VulkanTextureContext::TexelConversion
+make_texel_conversion(const Texture *texture, VkFormat format, bool pack_rgb) {
+  return make_texel_conversion(texture->get_format(), texture->get_component_type(),
+                               texture->get_num_components(),
+                               texture->get_component_width(), format, pack_rgb);
+}
+
+/**
  *
  */
 bool VulkanGraphicsStateGuardian::
@@ -1332,53 +1411,28 @@ create_texture(VulkanTextureContext *tc) {
     }
   }
 
-  bool pack_bgr8 = false;
-  bool swap_bgra8 = false;
+  bool pack_rgb = false;
   if (!supported) {
     // Not fully supported.  Can we convert it to a format that is supported?
-    // We pick ones with mandatory support in Vulkan; no need to check things.
-    switch (format) {
-    case VK_FORMAT_B8G8R8_UNORM:
-      format = VK_FORMAT_R8G8B8A8_UNORM;
-      pack_bgr8 = true;
-      break;
-
-    case VK_FORMAT_B8G8R8_SNORM:
-      format = VK_FORMAT_R8G8B8A8_SNORM;
-      pack_bgr8 = true;
-      break;
-
-    case VK_FORMAT_B8G8R8_UINT:
-      format = VK_FORMAT_R8G8B8A8_UINT;
-      pack_bgr8 = true;
-      break;
-
-    case VK_FORMAT_B8G8R8_SINT:
-      format = VK_FORMAT_R8G8B8A8_SINT;
-      pack_bgr8 = true;
-      break;
-
-    case VK_FORMAT_B8G8R8A8_UNORM:
-      format = VK_FORMAT_R8G8B8A8_UNORM;
-      swap_bgra8 = true;
-      break;
-
-    case VK_FORMAT_B8G8R8A8_SNORM:
-      format = VK_FORMAT_R8G8B8A8_SNORM;
-      swap_bgra8 = true;
-      break;
-
-    case VK_FORMAT_B8G8R8A8_UINT:
-      format = VK_FORMAT_R8G8B8A8_UINT;
-      swap_bgra8 = true;
-      break;
-
-    case VK_FORMAT_B8G8R8A8_SINT:
-      format = VK_FORMAT_R8G8B8A8_SINT;
-      swap_bgra8 = true;
-      break;
-
-    default:
+    // Three-component formats become four-component ones (most GPUs lack
+    // them), BGRA becomes RGBA; whether the texels then need their red and
+    // blue swapped is worked out below, from the final format.
+    if (format >= VK_FORMAT_B8G8R8_UNORM && format <= VK_FORMAT_B8G8R8_SRGB) {
+      format = (VkFormat)(format - VK_FORMAT_B8G8R8_UNORM + VK_FORMAT_R8G8B8A8_UNORM);
+      pack_rgb = true;
+    }
+    else if (format >= VK_FORMAT_B8G8R8A8_UNORM && format <= VK_FORMAT_B8G8R8A8_SRGB) {
+      format = (VkFormat)(format - VK_FORMAT_B8G8R8A8_UNORM + VK_FORMAT_R8G8B8A8_UNORM);
+    }
+    else if (format >= VK_FORMAT_R16G16B16_UNORM && format <= VK_FORMAT_R16G16B16_SFLOAT) {
+      format = (VkFormat)(format - VK_FORMAT_R16G16B16_UNORM + VK_FORMAT_R16G16B16A16_UNORM);
+      pack_rgb = true;
+    }
+    else if (format >= VK_FORMAT_R32G32B32_UINT && format <= VK_FORMAT_R32G32B32_SFLOAT) {
+      format = (VkFormat)(format - VK_FORMAT_R32G32B32_UINT + VK_FORMAT_R32G32B32A32_UINT);
+      pack_rgb = true;
+    }
+    else {
       // We'll still allow it if it's supported in a limited fashion.
       if (is_buffer) {
         supported = (fmt_props.bufferFeatures & VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT) != 0;
@@ -1396,6 +1450,8 @@ create_texture(VulkanTextureContext *tc) {
     // Update the properties for the new format.
     vkGetPhysicalDeviceFormatProperties(vkpipe->_gpu, format, &fmt_props);
   }
+
+  tc->_conversion = make_texel_conversion(texture, format, pack_rgb);
 
   bool render_to_texture = false;
   if (!is_buffer) {
@@ -1505,7 +1561,6 @@ create_texture(VulkanTextureContext *tc) {
     tc->_mipmap_begin = mipmap_begin;
     tc->_mipmap_end = mipmap_end;
     tc->_generate_mipmaps = generate_mipmaps;
-    tc->_pack_bgr8 = pack_bgr8;
     tc->_supports_render_to_texture = render_to_texture;
 
     if (is_depth) {
@@ -1651,7 +1706,7 @@ create_texture(VulkanTextureContext *tc) {
     VulkanMemoryBlock block;
     //VkDeviceSize view_size = texture->get_expected_ram_view_size();
     VkDeviceSize view_size = texture->get_expected_ram_image_size() / (size_t)num_views;
-    if (pack_bgr8) {
+    if (pack_rgb) {
       view_size = view_size / 3 * 4;
     }
     VkDeviceSize total_size = view_size * num_views;
@@ -1705,8 +1760,6 @@ create_texture(VulkanTextureContext *tc) {
     tc->_buffer = buffer;
     tc->_buffer_views = std::move(buffer_views);
     tc->_block = std::move(block);
-    tc->_pack_bgr8 = pack_bgr8;
-    tc->_swap_bgra8 = swap_bgra8;
     tc->_supports_render_to_texture = render_to_texture;
   }
 
@@ -1807,11 +1860,7 @@ upload_texture(VulkanTextureContext *tc, CompletionToken token) {
         buffer_size += optimal_align - remain;
       }
 
-      if (tc->_pack_bgr8) {
-        buffer_size += texture->get_ram_mipmap_image_size(n) / 3 * 4;
-      } else {
-        buffer_size += texture->get_ram_mipmap_image_size(n);
-      }
+      buffer_size += tc->_conversion.get_image_size(texture->get_ram_mipmap_image_size(n));
     }
   }
   nassertr(buffer_size > 0, false);
@@ -1865,28 +1914,10 @@ upload_texture(VulkanTextureContext *tc, CompletionToken token) {
       level_offsets.push_back(cur_offset);
 
       uint8_t *dest = (uint8_t *)data + (cur_offset - buffer_offset);
-      if (tc->_pack_bgr8) {
-        // Pack RGB data into RGBA, since most cards don't support RGB8.
-        nassertr(((uintptr_t)dest & 0x3) == 0, false);
-        const uint8_t *src_end = src + src_size;
-        uint32_t *dest32 = (uint32_t *)dest;
-
-        for (; src < src_end; src += 3) {
-          *dest32++ = 0xff000000 | (src[0] << 16) | (src[1] << 8) | src[2];
-        }
-        src_size = src_size / 3 * 4;
-      }
-      else if (tc->_swap_bgra8) {
-        nassertr(((uintptr_t)src & 0x3) == 0, false);
-        nassertr(((uintptr_t)dest & 0x3) == 0, false);
-        const uint32_t *src32 = (const uint32_t *)src;
-        const uint32_t *src32_end = (const uint32_t *)(src + src_size);
-        uint32_t *dest32 = (uint32_t *)dest;
-
-        for (; src32 < src32_end; ++src32) {
-          uint32_t v = *src32++;
-          *dest32++ = (v & 0xff00ff00) | ((v & 0x00ff0000) >> 16) | ((v & 0x000000ff) << 16);
-        }
+      if (tc->_conversion.needs_conversion()) {
+        // BGR(A) to RGB(A), and RGB to RGBA where the GPU lacks RGB.
+        tc->_conversion.convert(dest, src, src_size, true);
+        src_size = tc->_conversion.get_image_size(src_size);
       }
       else {
         memcpy(dest, src, src_size);
@@ -4658,10 +4689,21 @@ framebuffer_copy_to_ram(Texture *tex, int view, int z, const DisplayRegion *dr,
  */
 bool VulkanGraphicsStateGuardian::
 do_extract_image(VulkanTextureContext *tc, Texture *tex, int view, int z, ScreenshotRequest *request) {
-  VkDeviceSize buffer_size = tex->get_expected_ram_image_size();
+  // The framebuffer's contexts aren't made by create_texture; work out their
+  // conversion from the format the texture was just set up with.
+  FrameData::QueuedDownload down;
+  if (tc->_conversion._num_components > 0) {
+    down._conversion = tc->_conversion;
+  } else {
+    down._conversion = make_texel_conversion(tex, tc->_format, false);
+  }
+  down._flip = (tc == _fb_color_tc || tc == _fb_depth_tc ||
+                tc->_supports_render_to_texture);
+
+  VkDeviceSize buffer_size =
+    down._conversion.get_image_size(tex->get_expected_ram_image_size());
 
   // Create a temporary buffer for transferring into.
-  FrameData::QueuedDownload down;
   if (!create_buffer(buffer_size, down._buffer, down._block,
                      VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                      MP_readback_staging)) {
@@ -6542,6 +6584,8 @@ get_image_format(const Texture *texture) const {
 
   bool is_signed = !Texture::is_unsigned(component_type);
   bool is_srgb = Texture::is_srgb(format);
+  bool is_float = (component_type == Texture::T_float ||
+                   component_type == Texture::T_half_float);
 
   switch (compression) {
   case Texture::CM_on:
@@ -6630,7 +6674,7 @@ get_image_format(const Texture *texture) const {
   case Texture::F_rgb8:
     return (VkFormat)(VK_FORMAT_B8G8R8_UNORM + is_signed);
   case Texture::F_rgb12:
-    return (VkFormat)(VK_FORMAT_R16G16B16_UNORM + is_signed);
+    return is_float ? VK_FORMAT_R16G16B16_SFLOAT : (VkFormat)(VK_FORMAT_R16G16B16_UNORM + is_signed);
   case Texture::F_rgb332:
     return VK_FORMAT_B5G6R5_UNORM_PACK16;
   case Texture::F_rgba:
@@ -6644,7 +6688,7 @@ get_image_format(const Texture *texture) const {
   case Texture::F_rgba8:
     return (VkFormat)(VK_FORMAT_B8G8R8A8_UNORM + is_signed);
   case Texture::F_rgba12:
-    return (VkFormat)(VK_FORMAT_R16G16B16A16_UNORM + is_signed);
+    return is_float ? VK_FORMAT_R16G16B16A16_SFLOAT : (VkFormat)(VK_FORMAT_R16G16B16A16_UNORM + is_signed);
   case Texture::F_luminance:
     return (VkFormat)(VK_FORMAT_R8_UNORM + is_signed);
   case Texture::F_luminance_alpha:
@@ -6652,7 +6696,7 @@ get_image_format(const Texture *texture) const {
   case Texture::F_luminance_alphamask:
     return (VkFormat)(VK_FORMAT_R8G8_UNORM + is_signed);
   case Texture::F_rgba16:
-    return (VkFormat)(VK_FORMAT_R16G16B16A16_UNORM + is_signed);
+    return is_float ? VK_FORMAT_R16G16B16A16_SFLOAT : (VkFormat)(VK_FORMAT_R16G16B16A16_UNORM + is_signed);
   case Texture::F_rgba32:
     return VK_FORMAT_R32G32B32A32_SFLOAT;
   case Texture::F_depth_component:
@@ -6664,11 +6708,11 @@ get_image_format(const Texture *texture) const {
   case Texture::F_depth_component32:
     return VK_FORMAT_D32_SFLOAT;
   case Texture::F_r16:
-    return (VkFormat)(VK_FORMAT_R16_UNORM + is_signed);
+    return is_float ? VK_FORMAT_R16_SFLOAT : (VkFormat)(VK_FORMAT_R16_UNORM + is_signed);
   case Texture::F_rg16:
-    return (VkFormat)(VK_FORMAT_R16G16_UNORM + is_signed);
+    return is_float ? VK_FORMAT_R16G16_SFLOAT : (VkFormat)(VK_FORMAT_R16G16_UNORM + is_signed);
   case Texture::F_rgb16:
-    return (VkFormat)(VK_FORMAT_R16G16B16_UNORM + is_signed);
+    return is_float ? VK_FORMAT_R16G16B16_SFLOAT : (VkFormat)(VK_FORMAT_R16G16B16_UNORM + is_signed);
   case Texture::F_srgb:
     return VK_FORMAT_B8G8R8A8_SRGB;
   case Texture::F_srgb_alpha:
