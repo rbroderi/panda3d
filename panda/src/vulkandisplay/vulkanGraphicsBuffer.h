@@ -40,6 +40,7 @@ public:
   virtual void clear(Thread *current_thread) override;
   virtual bool begin_frame(FrameMode mode, Thread *current_thread) override;
   virtual void end_frame(FrameMode mode, Thread *current_thread) override;
+  virtual void select_target_tex_page(int page) override;
 
 protected:
   virtual void close_buffer() override;

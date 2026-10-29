@@ -91,6 +91,13 @@ release(VulkanFrameData &frame_data) {
     _image_views.clear();
   }
 
+  for (VkImageView layer_view : _layer_views) {
+    if (layer_view != VK_NULL_HANDLE) {
+      frame_data._pending_destroy_image_views.push_back(layer_view);
+    }
+  }
+  _layer_views.clear();
+
   if (_buffer != VK_NULL_HANDLE) {
     frame_data._pending_destroy_buffers.push_back(_buffer);
 
@@ -139,6 +146,13 @@ destroy_now(VkDevice device) {
     vkDestroyImageView(device, image_view, nullptr);
   }
   _image_views.clear();
+
+  for (VkImageView layer_view : _layer_views) {
+    if (layer_view != VK_NULL_HANDLE) {
+      vkDestroyImageView(device, layer_view, nullptr);
+    }
+  }
+  _layer_views.clear();
 
   if (_image != VK_NULL_HANDLE) {
     vkDestroyImage(device, _image, nullptr);
@@ -221,6 +235,41 @@ clear_buffer(VulkanCommandBuffer &cmd, uint32_t fill) {
                   VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
   vkCmdFillBuffer(cmd, _buffer, 0, VK_WHOLE_SIZE, fill);
+}
+
+/**
+ * Returns a 2D view of one layer of the image (one face of a cube map), to
+ * render into, making it the first time it is asked for.
+ */
+VkImageView VulkanTextureContext::
+get_layer_view(VkDevice device, uint32_t layer) {
+  nassertr(_image != VK_NULL_HANDLE && layer < _array_layers, VK_NULL_HANDLE);
+  if (_layer_views.size() <= layer) {
+    _layer_views.resize(_array_layers, VK_NULL_HANDLE);
+  }
+  if (_layer_views[layer] == VK_NULL_HANDLE) {
+    VkImageViewCreateInfo view_info = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    view_info.image = _image;
+    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_info.format = _format;
+    view_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+    view_info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+    view_info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+    view_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+    view_info.subresourceRange.aspectMask = _aspect_mask;
+    view_info.subresourceRange.baseMipLevel = 0;
+    view_info.subresourceRange.levelCount = 1;
+    view_info.subresourceRange.baseArrayLayer = layer;
+    view_info.subresourceRange.layerCount = 1;
+
+    VkResult err = vkCreateImageView(device, &view_info, nullptr, &_layer_views[layer]);
+    if (err) {
+      vulkandisplay_cat.error()
+        << "Failed to create view of layer " << layer << " (error " << err << ")\n";
+      _layer_views[layer] = VK_NULL_HANDLE;
+    }
+  }
+  return _layer_views[layer];
 }
 
 /**

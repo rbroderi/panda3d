@@ -39,6 +39,7 @@ public:
 
   INLINE VkImageView get_image_view(int view) const;
   INLINE VkBufferView get_buffer_view(int view) const;
+  VkImageView get_layer_view(VkDevice device, uint32_t layer);
 
   INLINE void mark_read(uint64_t seq);
   INLINE void discard();
@@ -85,6 +86,9 @@ public:
   // image and image view or buffer and buffer view will be set.
   VkImage _image = VK_NULL_HANDLE;
   small_vector<VkImageView> _image_views;
+  // Single-layer 2D views of a layered image (a cube map's faces), made as
+  // they are rendered into; null where none has been made.
+  small_vector<VkImageView> _layer_views;
   VkBuffer _buffer = VK_NULL_HANDLE;
   small_vector<VkBufferView> _buffer_views;
   VulkanMemoryBlock _block;
