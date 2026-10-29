@@ -149,8 +149,27 @@ begin_frame(FrameMode mode, Thread *current_thread) {
     clear_cube_map_selection();
   }*/
 
-  // Now that we have a command buffer, start our render pass.
+  // Now that we have a command buffer, start our render pass, on the first
+  // face if it renders into a cube map.
+  _framebuffer._layer = 0;
   return _framebuffer.begin_rendering(vkgsg, this);
+}
+
+/**
+ * Called when rendering moves on to another face of a cube map (or page of
+ * any multi-page texture): ends the rendering pass and starts it again on
+ * that layer of the attachments.
+ */
+void VulkanGraphicsBuffer::
+select_target_tex_page(int page) {
+  VulkanGraphicsStateGuardian *vkgsg;
+  DCAST_INTO_V(vkgsg, _gsg);
+  if (page < 0 || page == _framebuffer._layer) {
+    return;
+  }
+  _framebuffer.end_rendering(vkgsg);
+  _framebuffer._layer = page;
+  _framebuffer.begin_rendering(vkgsg, this);
 }
 
 /**

@@ -100,6 +100,19 @@ destroy(VulkanGraphicsStateGuardian *vkgsg) {
 }
 
 /**
+ * Returns the view to render into for the given attachment: of a layered
+ * image (a cube map), the current layer's alone.
+ */
+VkImageView VulkanFramebuffer::
+attachment_view(VulkanGraphicsStateGuardian *vkgsg, VulkanTextureContext *tc) const {
+  if (tc->_array_layers > 1 && tc->_image != VK_NULL_HANDLE) {
+    return tc->get_layer_view(vkgsg->_device,
+                              std::min((uint32_t)_layer, tc->_array_layers - 1));
+  }
+  return tc->get_image_view(0);
+}
+
+/**
  * Begins a dynamic rendering pass that renders into all of the attachments,
  * applying the clear settings from the given region.  Returns true on success.
  */
@@ -140,7 +153,7 @@ begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region) {
     tc->set_active(true);
 
     if (is_depth_stencil(attach)) {
-      VkImageView view = tc->get_image_view(0);
+      VkImageView view = attachment_view(vkgsg, tc);
       VkImageLayout layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
       // A multisampled depth/stencil attachment is resolved by taking sample
@@ -151,7 +164,7 @@ begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region) {
       if (resolve_tc != nullptr) {
         nassertr(resolve_tc->_read_seq <= cmd._seq, false);
         resolve_tc->set_active(true);
-        resolve_view = resolve_tc->get_image_view(0);
+        resolve_view = attachment_view(vkgsg, resolve_tc);
         resolve_mode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
       }
 
@@ -218,7 +231,7 @@ begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region) {
         color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
       }
       color_attachment.storeOp = attach._store_op;
-      color_attachment.imageView = tc->get_image_view(0);
+      color_attachment.imageView = attachment_view(vkgsg, tc);
       color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
       cmd.add_barrier(tc, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -234,7 +247,7 @@ begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region) {
         resolve_tc->set_active(true);
 
         color_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-        color_attachment.resolveImageView = resolve_tc->get_image_view(0);
+        color_attachment.resolveImageView = attachment_view(vkgsg, resolve_tc);
         color_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
         cmd.add_barrier(resolve_tc, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,

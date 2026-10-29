@@ -99,8 +99,14 @@ public:
   bool begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region);
   void end_rendering(VulkanGraphicsStateGuardian *vkgsg);
 
+private:
+  VkImageView attachment_view(VulkanGraphicsStateGuardian *vkgsg,
+                              VulkanTextureContext *tc) const;
+
 public:
   LVecBase2i _size;
+  // The layer of layered attachments (a cube map's face) rendered into.
+  int _layer = 0;
   Config _config;
   uint32_t _config_id = 0;
 
