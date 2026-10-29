@@ -1229,6 +1229,8 @@ make_texel_conversion(Texture::Format tex_format, Texture::ComponentType type,
   bool ram_is_bgr = false;
   switch (tex_format) {
   case Texture::F_rgb:
+  case Texture::F_rgb5:
+  case Texture::F_rgb332:
   case Texture::F_rgb8:
   case Texture::F_rgb12:
   case Texture::F_rgb16:
@@ -1236,6 +1238,8 @@ make_texel_conversion(Texture::Format tex_format, Texture::ComponentType type,
   case Texture::F_srgb:
   case Texture::F_rgba:
   case Texture::F_rgbm:
+  case Texture::F_rgba4:
+  case Texture::F_rgba5:
   case Texture::F_rgba8:
   case Texture::F_rgba12:
   case Texture::F_rgba16:
@@ -6719,21 +6723,22 @@ get_image_format(const Texture *texture) const {
   case Texture::F_rgb:
     return (VkFormat)(VK_FORMAT_B8G8R8_UNORM + is_signed);
   case Texture::F_rgb5:
-    return VK_FORMAT_B5G6R5_UNORM_PACK16;
+    // The RAM image holds a byte a component, as for the other formats here
+    // that OpenGL packs as it uploads; we keep them as bytes.
+    return (VkFormat)(VK_FORMAT_B8G8R8_UNORM + is_signed);
   case Texture::F_rgb8:
     return (VkFormat)(VK_FORMAT_B8G8R8_UNORM + is_signed);
   case Texture::F_rgb12:
     return is_float ? VK_FORMAT_R16G16B16_SFLOAT : (VkFormat)(VK_FORMAT_R16G16B16_UNORM + is_signed);
   case Texture::F_rgb332:
-    return VK_FORMAT_B5G6R5_UNORM_PACK16;
+    return (VkFormat)(VK_FORMAT_B8G8R8_UNORM + is_signed);
   case Texture::F_rgba:
     return (VkFormat)(VK_FORMAT_B8G8R8A8_UNORM + is_signed);
   case Texture::F_rgbm:
     return (VkFormat)(VK_FORMAT_B8G8R8A8_UNORM + is_signed);
   case Texture::F_rgba4:
-    return VK_FORMAT_R4G4B4A4_UNORM_PACK16;
   case Texture::F_rgba5:
-    return VK_FORMAT_R5G5B5A1_UNORM_PACK16;
+    return (VkFormat)(VK_FORMAT_B8G8R8A8_UNORM + is_signed);
   case Texture::F_rgba8:
     return (VkFormat)(VK_FORMAT_B8G8R8A8_UNORM + is_signed);
   case Texture::F_rgba12:
@@ -6763,7 +6768,8 @@ get_image_format(const Texture *texture) const {
   case Texture::F_rgb16:
     return is_float ? VK_FORMAT_R16G16B16_SFLOAT : (VkFormat)(VK_FORMAT_R16G16B16_UNORM + is_signed);
   case Texture::F_srgb:
-    return VK_FORMAT_B8G8R8A8_SRGB;
+    // Three components in RAM; packed into RGBA where BGR isn't supported.
+    return VK_FORMAT_B8G8R8_SRGB;
   case Texture::F_srgb_alpha:
     return VK_FORMAT_B8G8R8A8_SRGB;
   case Texture::F_sluminance:
