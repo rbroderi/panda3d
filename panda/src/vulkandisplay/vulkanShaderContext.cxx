@@ -836,6 +836,46 @@ make_dynamic_uniform_descriptor_set_layout(VkDevice device) {
 }
 
 /**
+ * The GSG emulates F_alpha, F_luminance and friends with a one- or
+ * two-channel image and a component swizzle on its view.  Drivers apply that
+ * swizzle to a sampler's border colour as well (without
+ * VK_EXT_border_color_swizzle the result is theirs to choose), so a border of
+ * (1, 1, 1, 0) on an F_alpha texture would read back as alpha 1 where OpenGL
+ * gives 0.  This puts the border's values into the channels the view reads
+ * them from, chosen so that alpha comes out right whether or not the driver
+ * swizzles the border.
+ */
+static void
+remap_border_color(SamplerState &sampler, Texture::Format format) {
+  if (sampler.get_wrap_u() != SamplerState::WM_border_color &&
+      sampler.get_wrap_v() != SamplerState::WM_border_color &&
+      sampler.get_wrap_w() != SamplerState::WM_border_color) {
+    return;
+  }
+  const LColor &b = sampler.get_border_color();
+  switch (format) {
+  case Texture::F_alpha:
+    sampler.set_border_color(LColor(b[3], b[3], b[3], b[3]));
+    break;
+  case Texture::F_luminance:
+  case Texture::F_sluminance:
+    sampler.set_border_color(LColor(b[0], b[0], b[0], 1));
+    break;
+  case Texture::F_luminance_alpha:
+    sampler.set_border_color(LColor(b[0], b[3], b[0], b[3]));
+    break;
+  case Texture::F_green:
+    sampler.set_border_color(LColor(b[1], b[1], b[1], 1));
+    break;
+  case Texture::F_blue:
+    sampler.set_border_color(LColor(b[2], b[2], b[2], 0));
+    break;
+  default:
+    break;
+  }
+}
+
+/**
  *
  */
 bool VulkanShaderContext::
@@ -874,6 +914,10 @@ fetch_descriptor(VulkanGraphicsStateGuardian *gsg, const Descriptor &desc,
                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                             desc._pipeline_stage_mask,
                             VK_ACCESS_2_SHADER_READ_BIT);
+
+      if (texture != nullptr) {
+        remap_border_color(sampler, texture->get_format());
+      }
 
       VulkanSamplerContext *sc;
       DCAST_INTO_R(sc, sampler.prepare_now(pgo, gsg), false);
