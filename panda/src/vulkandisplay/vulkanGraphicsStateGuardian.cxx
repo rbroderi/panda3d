@@ -1832,8 +1832,9 @@ upload_texture(VulkanTextureContext *tc, CompletionToken token) {
   }
   // Each level's offset must also be a multiple of the image's texel size.
   {
-    VkDeviceSize texel = (VkDeviceSize)(tc->_pack_bgr8 ? 4 : std::max(texture->get_num_components(), 1))
-                       * std::max(texture->get_component_width(), 1);
+    const VulkanTextureContext::TexelConversion &conv = tc->_conversion;
+    VkDeviceSize texel = (VkDeviceSize)(conv._pack_rgb ? 4 : std::max(conv._num_components, 1))
+                       * (conv._float_to_half ? 2 : std::max(conv._component_width, 1));
     VkDeviceSize a = optimal_align, b = texel;
     while (b != 0) {
       VkDeviceSize r = a % b;
