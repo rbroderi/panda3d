@@ -909,9 +909,14 @@ fetch_descriptor(VulkanGraphicsStateGuardian *gsg, const Descriptor &desc,
       int view = gsg->get_current_tex_view_offset();
       PT(Texture) texture = desc._binding->fetch_texture(state, id, sampler, view);
 
+      // A compute shader may sample one level of an image while writing
+      // another as a storage image (building a mip chain); the image has one
+      // layout, so sample it in the general one there.
+      VkImageLayout layout = (desc._pipeline_stage_mask & VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT)
+        ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
       VulkanTextureContext *tc;
-      tc = gsg->use_texture(texture,
-                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+      tc = gsg->use_texture(texture, layout,
                             desc._pipeline_stage_mask,
                             VK_ACCESS_2_SHADER_READ_BIT);
 
@@ -925,7 +930,7 @@ fetch_descriptor(VulkanGraphicsStateGuardian *gsg, const Descriptor &desc,
       VkDescriptorImageInfo &image_info = *image_infos++;
       image_info.sampler = sc->_sampler;
       image_info.imageView = tc ? tc->get_image_view(view) : VK_NULL_HANDLE;
-      image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      image_info.imageLayout = layout;
     }
     break;
 
