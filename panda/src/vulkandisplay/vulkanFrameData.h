@@ -53,7 +53,8 @@ public:
   pvector<VkImageView> _pending_destroy_image_views;
   pvector<VkSampler> _pending_destroy_samplers;
   pvector<VkSemaphore> _pending_destroy_semaphores;
-  pvector<VkDescriptorSet> _pending_free_descriptor_sets;
+  // Each with the pool it was allocated from.
+  pvector<std::pair<VkDescriptorPool, VkDescriptorSet> > _pending_free_descriptor_sets;
 
   VkDeviceSize _uniform_buffer_head = 0;
   VkDeviceSize _staging_buffer_head = 0;

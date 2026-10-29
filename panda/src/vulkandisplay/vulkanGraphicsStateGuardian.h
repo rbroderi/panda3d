@@ -205,6 +205,10 @@ public:
                                           const std::string &debug_name = std::string());
 
   VkSemaphore create_semaphore();
+  bool create_descriptor_pool();
+  VkResult allocate_descriptor_set(VkDescriptorSetLayout layout,
+                                   VkDescriptorSet &out,
+                                   VkDescriptorPool *pool = nullptr);
   bool wait_semaphore(VkSemaphore semaphore, uint64_t value,
                       uint64_t timeout = UINT64_MAX);
 
@@ -278,7 +282,11 @@ private:
   VkCommandPool _cmd_pool = VK_NULL_HANDLE;
   pvector<VkRect2D> _viewports;
   VkPipelineCache _pipeline_cache = VK_NULL_HANDLE;
+  // The pool descriptor sets are allocated from; when one is full, another
+  // is made, and the full ones are kept till the GSG is destroyed.
   VkDescriptorPool _descriptor_pool = VK_NULL_HANDLE;
+  pvector<VkDescriptorPool> _full_descriptor_pools;
+  VkDescriptorPool _global_descriptor_pool = VK_NULL_HANDLE;
   VulkanShaderContext *_default_sc = nullptr;
   Shader *_current_shader = nullptr;
   VulkanShaderContext *_current_sc = nullptr;
