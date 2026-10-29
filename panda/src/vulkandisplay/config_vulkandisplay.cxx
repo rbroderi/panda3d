@@ -70,6 +70,13 @@ ConfigVariableBool vulkan_support_custom_border_color
           "If you do not need to use a different border color than these, it "
           "is strongly recommended to set this to false."));
 
+ConfigVariableBool vulkan_validation
+("vulkan-validation", false,
+ PRC_DESC("Set this to true to enable the Khronos validation layer, if it is "
+          "installed (it comes with the Vulkan SDK).  It reports misuse of "
+          "the Vulkan API, but makes every call much slower, so it is off by "
+          "default even where the layer is installed."));
+
 #define VK_ERROR_INVALID_SHADER_NV -1000012000
 
 /**

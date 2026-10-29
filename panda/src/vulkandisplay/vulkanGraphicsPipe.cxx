@@ -76,7 +76,8 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
 
     vkEnumerateInstanceLayerProperties(&num_inst_layers, inst_layers);
     for (uint32_t i = 0; i < num_inst_layers; ++i) {
-      if (strcmp(inst_layers[i].layerName, "VK_LAYER_KHRONOS_validation") == 0) {
+      if (vulkan_validation &&
+          strcmp(inst_layers[i].layerName, "VK_LAYER_KHRONOS_validation") == 0) {
         layers.push_back("VK_LAYER_KHRONOS_validation");
       }
     }
