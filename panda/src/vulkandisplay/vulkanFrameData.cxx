@@ -25,17 +25,25 @@ finish_downloads(VkDevice device) {
 
     if (auto data = down._block.map()) {
       down._block.invalidate();
-      // The texture is upside down, so invert it.
+      // A row at a time: rendered images are upside down, and the texels
+      // may need converting back to the RAM image's layout.
+      const VulkanTextureContext::TexelConversion &conversion = down._conversion;
       size_t row_size = down._texture->get_x_size()
                       * down._texture->get_num_components()
                       * down._texture->get_component_width();
-      unsigned char *dst = target.p() + view_size * (down._view + 1) - row_size;
+      size_t image_row_size = conversion.get_image_size(row_size);
+      unsigned char *view = target.p() + view_size * down._view;
+      unsigned char *dst = down._flip ? view + view_size - row_size : view;
+      ptrdiff_t dst_step = down._flip ? -(ptrdiff_t)row_size : (ptrdiff_t)row_size;
       unsigned char *src = (unsigned char *)data;
-      unsigned char *src_end = src + view_size;
-      while (src < src_end) {
-        memcpy(dst, src, row_size);
-        src += row_size;
-        dst -= row_size;
+      for (size_t row = 0; row < view_size / row_size; ++row) {
+        if (conversion.needs_conversion()) {
+          conversion.convert(dst, src, row_size, false);
+        } else {
+          memcpy(dst, src, row_size);
+        }
+        src += image_row_size;
+        dst += dst_step;
       }
     } else {
       vulkandisplay_cat.error()

@@ -17,8 +17,7 @@
 #include "config_vulkandisplay.h"
 #include "vulkanMemoryPage.h"
 #include "screenshotRequest.h"
-
-class VulkanTextureContext;
+#include "vulkanTextureContext.h"
 class VulkanBufferContext;
 
 /**
@@ -89,6 +88,11 @@ public:
     PT(Texture) _texture;
     int _view;
     PT(ScreenshotRequest) _request;
+
+    // Rendered images are stored top row first (see _copy_texture_inverted);
+    // RAM images, as in OpenGL, bottom row first.
+    bool _flip = false;
+    VulkanTextureContext::TexelConversion _conversion;
   };
   typedef pvector<QueuedDownload> DownloadQueue;
   DownloadQueue _download_queue;
