@@ -21,7 +21,9 @@ bool SpirVInjectAlphaTestPass::
 transform_entry_point(spv::ExecutionModel model, uint32_t id, const char *name, pvector<uint32_t> &vars) {
   if (model == spv::ExecutionModelFragment) {
     for (uint32_t var_id : vars) {
-      if (_db.get_definition(var_id)._location == 0) {
+      // The color output: inputs are numbered from location 0 as well.
+      const auto &def = _db.get_definition(var_id);
+      if (def._location == 0 && def._storage_class == spv::StorageClassOutput) {
         _entry_points[id] = var_id;
         break;
       }
