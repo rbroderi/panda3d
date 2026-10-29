@@ -3358,6 +3358,15 @@ begin_frame(Thread *current_thread, VkSemaphore wait_for) {
     // have relieved an exhausted heap, so allow probing them again.
     _exhausted_memory_types = 0;
   }
+  else if (_free_command_buffers.size() < 4) {
+    // Many frames' worth of work within one clock frame: compute dispatches
+    // or texture extractions done in a loop, before the window's first frame
+    // or between frames.  Submit it and go on with new frame data, so that it
+    // can finish and return its command buffers; otherwise, out of them,
+    // create_command_buffer() would wait for work never submitted.
+    flush();
+    _frame_data = nullptr;
+  }
   if (_frame_data == nullptr) {
     _frame_data = &get_next_frame_data(true);
     _frame_data->_clock_frame_number = clock_frame;
