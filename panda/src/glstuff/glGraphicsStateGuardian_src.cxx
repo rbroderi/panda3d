@@ -4864,7 +4864,7 @@ begin_frame(Thread *current_thread) {
 #endif  // NDEBUG
 
 #ifndef OPENGLES
-  if (_current_properties->get_srgb_color()) {
+  if (_current_properties != nullptr && _current_properties->get_srgb_color()) {
     glEnable(GL_FRAMEBUFFER_SRGB);
   }
 #endif
@@ -4916,7 +4916,7 @@ end_frame(Thread *current_thread) {
   report_my_gl_errors();
 
 #ifndef OPENGLES
-  if (_current_properties->get_srgb_color()) {
+  if (_current_properties != nullptr && _current_properties->get_srgb_color()) {
     glDisable(GL_FRAMEBUFFER_SRGB);
   }
 #endif
@@ -8863,6 +8863,7 @@ framebuffer_copy_to_ram(Texture *tex, int view, int z,
                         const DisplayRegion *dr, const RenderBuffer &rb,
                         ScreenshotRequest *request) {
   nassertr(tex != nullptr && dr != nullptr, false);
+  nassertr(_current_properties != nullptr, false);
   set_read_buffer(rb._buffer_type);
   glPixelStorei(GL_PACK_ALIGNMENT, 1);
   clear_color_write_mask();
