@@ -763,6 +763,7 @@ if (COMPILER == "MSVC"):
             LibName("SQUISH",   GetThirdpartyDir() + "squish/lib/squish.lib")
     if (PkgSkip("OPENAL")==0):
         LibName("OPENAL", GetThirdpartyDir() + "openal/lib/OpenAL32.lib")
+        LibName("OPENAL", "/FORCE:MULTIPLE")  # local: static OpenAL vs dtool std::atomic export
         if not os.path.isfile(GetThirdpartyDir() + "openal/bin/OpenAL32.dll"):
             # Link OpenAL Soft statically.
             DefSymbol("OPENAL", "AL_LIBTYPE_STATIC")
