@@ -2324,7 +2324,7 @@ def SdkLocateVisualStudio(version=(10,0)):
     if vswhere_path:
         min_vsversion = vsversion_str
         max_vsversion = "%s.%s" % (vsversion[0]+1, 0)
-        vswhere_cmd = ["vswhere.exe", "-legacy", "-property", "installationPath",
+        vswhere_cmd = ["vswhere.exe", "-products", "*", "-property", "installationPath",
             "-version", "[{},{})".format(min_vsversion, max_vsversion)]
         handle = subprocess.Popen(vswhere_cmd, executable=vswhere_path, stdout=subprocess.PIPE)
         found_paths = handle.communicate()[0].splitlines()
