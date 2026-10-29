@@ -1387,7 +1387,10 @@ create_texture(VulkanTextureContext *tc) {
     }
   } else {
     supported = (fmt_props.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) != 0;
-    if (!is_depth && supported) {
+    // sRGB images can't be storage images in any format, so don't give up a
+    // BGRA sRGB format for an RGBA one over it: a render target's resolve
+    // would then differ in format from its multisample image.
+    if (!is_depth && supported && !Texture::is_srgb(tex_format)) {
       supported = (fmt_props.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) != 0;
     }
   }
@@ -1827,9 +1830,21 @@ upload_texture(VulkanTextureContext *tc, CompletionToken token) {
   nassertd(optimal_align > 0) {
     optimal_align = 1;
   }
-  if (optimal_align < 4) {
-    //FIXME: texel size
-    optimal_align = 4;
+  // Each level's offset must also be a multiple of the image's texel size.
+  {
+    const VulkanTextureContext::TexelConversion &conv = tc->_conversion;
+    VkDeviceSize texel = (VkDeviceSize)(conv._pack_rgb ? 4 : std::max(conv._num_components, 1))
+                       * (conv._float_to_half ? 2 : std::max(conv._component_width, 1));
+    VkDeviceSize a = optimal_align, b = texel;
+    while (b != 0) {
+      VkDeviceSize r = a % b;
+      a = b;
+      b = r;
+    }
+    optimal_align = optimal_align / a * texel;
+    while (optimal_align < 4) {
+      optimal_align *= 2;
+    }
   }
 
   // Add up the total size of the staging buffer to create.

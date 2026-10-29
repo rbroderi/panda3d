@@ -207,10 +207,10 @@ begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region) {
         VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
 
       if (resolve_tc != nullptr) {
+        // Depth/stencil resolves happen in the color attachment output stage.
         cmd.add_barrier(resolve_tc, layout,
-          VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-          VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-          VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+          VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+          VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
       }
 
       vkgsg->_fb_depth_tc = (resolve_tc != nullptr) ? resolve_tc : tc;
@@ -295,6 +295,11 @@ end_rendering(VulkanGraphicsStateGuardian *vkgsg) {
       if (tc != nullptr) {
         tc->_write_stage_mask = write_stage_mask;
         tc->_write_access_mask = write_access_mask;
+        if (tc == attach._resolve_tc && is_depth_stencil(attach)) {
+          // Depth/stencil resolves write in the color attachment output stage.
+          tc->_write_stage_mask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+          tc->_write_access_mask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        }
         tc->_read_stage_mask = 0;
         tc->_write_seq = cmd._seq;
       }
