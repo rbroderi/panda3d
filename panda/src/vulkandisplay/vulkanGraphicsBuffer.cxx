@@ -74,12 +74,35 @@ begin_frame(FrameMode mode, Thread *current_thread) {
     return false;
   }
 
-  if (mode != FM_render) {
+  if (mode != FM_render && mode != FM_refresh) {
     return true;
   }
 
   VulkanGraphicsStateGuardian *vkgsg;
   DCAST_INTO_R(vkgsg, _gsg, false);
+
+  if (mode == FM_refresh) {
+    // A screenshot of what was last rendered: a command buffer to copy it on,
+    // and no rendering pass.
+    if (!vkgsg->is_valid() || _framebuffer._attachments.empty()) {
+      return false;
+    }
+    vkgsg->set_current_properties(&get_fb_properties());
+    if (!vkgsg->begin_frame(current_thread)) {
+      return false;
+    }
+    vkgsg->_fb_color_tc = nullptr;
+    vkgsg->_fb_depth_tc = nullptr;
+    for (const VulkanFramebuffer::Attachment &attach : _framebuffer._attachments) {
+      VulkanTextureContext *tc = attach._resolve_tc ? attach._resolve_tc : attach._tc;
+      if (attach._tc->_aspect_mask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) {
+        vkgsg->_fb_depth_tc = tc;
+      } else if (vkgsg->_fb_color_tc == nullptr) {
+        vkgsg->_fb_color_tc = tc;
+      }
+    }
+    return true;
+  }
 
   if (vkgsg->needs_reset()) {
     vkQueueWaitIdle(vkgsg->_queue);
@@ -172,6 +195,10 @@ end_frame(FrameMode mode, Thread *current_thread) {
 
     trigger_flip();
     clear_cube_map_selection();
+  }
+  else if (mode == FM_refresh) {
+    // Closes the command buffer begin_frame() opened for the screenshot.
+    _gsg->end_frame(current_thread);
   }
 }
 
