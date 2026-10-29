@@ -451,28 +451,7 @@ reset() {
     vulkan_error(err, "Failed to create pipeline cache");
   }
 
-  //TODO: dynamic allocation, create more pools if we run out
-  VkDescriptorPoolSize pool_sizes[] = {
-    {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4096},
-    {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 512},
-    {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 256},
-    {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 256},
-    {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 256},
-    {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 256},
-    {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 128},
-  };
-
-  VkDescriptorPoolCreateInfo pool_info;
-  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-  pool_info.pNext = nullptr;
-  pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-  pool_info.maxSets = 1024;
-  pool_info.poolSizeCount = sizeof(pool_sizes) / sizeof(VkDescriptorPoolSize);
-  pool_info.pPoolSizes = pool_sizes;
-
-  err = vkCreateDescriptorPool(_device, &pool_info, nullptr, &_descriptor_pool);
-  if (err) {
-    vulkan_error(err, "Failed to create descriptor pool");
+  if (!create_descriptor_pool()) {
     return;
   }
 
@@ -602,13 +581,7 @@ reset() {
 
   // Make a descriptor set that we apply when there are no lights.
   {
-    VkDescriptorSetAllocateInfo alloc_info;
-    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    alloc_info.pNext = nullptr;
-    alloc_info.descriptorPool = _descriptor_pool;
-    alloc_info.descriptorSetCount = 1;
-    alloc_info.pSetLayouts = &_lattr_descriptor_set_layout;
-    VkResult err = vkAllocateDescriptorSets(_device, &alloc_info, &_empty_lattr_descriptor_set);
+    VkResult err = allocate_descriptor_set(_lattr_descriptor_set_layout, _empty_lattr_descriptor_set);
     if (err) {
       vulkan_error(err, "Failed to allocate descriptor set for empty light attribute");
       return;
@@ -896,6 +869,10 @@ destroy_device() {
   vkDestroyDescriptorSetLayout(_device, _global_descriptor_set_layout, nullptr);
   vkDestroyDescriptorSetLayout(_device, _lattr_descriptor_set_layout, nullptr);
   vkDestroyDescriptorPool(_device, _descriptor_pool, nullptr);
+  for (VkDescriptorPool pool : _full_descriptor_pools) {
+    vkDestroyDescriptorPool(_device, pool, nullptr);
+  }
+  _full_descriptor_pools.clear();
   vkDestroySampler(_device, _shadow_sampler, nullptr);
   vkDestroyPipelineCache(_device, _pipeline_cache, nullptr);
   vkDestroyCommandPool(_device, _cmd_pool, nullptr);
@@ -3651,12 +3628,12 @@ finish_frame(FrameData &frame_data) {
   frame_data._pending_free.clear();
 
   if (!frame_data._pending_free_descriptor_sets.empty()) {
-    VkResult err;
-    err = vkFreeDescriptorSets(_device, _descriptor_pool,
-                               frame_data._pending_free_descriptor_sets.size(),
-                               &frame_data._pending_free_descriptor_sets[0]);
-    if (err) {
-      vulkan_error(err, "Failed to free descriptor sets");
+    for (const auto &pool_set : frame_data._pending_free_descriptor_sets) {
+      VkResult err;
+      err = vkFreeDescriptorSets(_device, pool_set.first, 1, &pool_set.second);
+      if (err) {
+        vulkan_error(err, "Failed to free descriptor sets");
+      }
     }
     frame_data._pending_free_descriptor_sets.clear();
   }
@@ -5132,6 +5109,71 @@ create_semaphore() {
 }
 
 /**
+ * Makes a new descriptor pool to allocate descriptor sets from, keeping the
+ * previous one (whose sets are still in use) till the GSG is destroyed.
+ */
+bool VulkanGraphicsStateGuardian::
+create_descriptor_pool() {
+  VkDescriptorPoolSize pool_sizes[] = {
+    {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4096},
+    {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 512},
+    {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 256},
+    {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 256},
+    {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 256},
+    {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 256},
+    {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 128},
+  };
+
+  VkDescriptorPoolCreateInfo pool_info;
+  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  pool_info.pNext = nullptr;
+  pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+  pool_info.maxSets = 1024;
+  pool_info.poolSizeCount = sizeof(pool_sizes) / sizeof(VkDescriptorPoolSize);
+  pool_info.pPoolSizes = pool_sizes;
+
+  VkDescriptorPool pool;
+  VkResult err = vkCreateDescriptorPool(_device, &pool_info, nullptr, &pool);
+  if (err) {
+    vulkan_error(err, "Failed to create descriptor pool");
+    return false;
+  }
+  if (_descriptor_pool != VK_NULL_HANDLE) {
+    _full_descriptor_pools.push_back(_descriptor_pool);
+  }
+  _descriptor_pool = pool;
+  return true;
+}
+
+/**
+ * Allocates a descriptor set with the given layout, from a new pool if the
+ * current one is full.  pool, if given, is set to the pool it came from,
+ * which it must be freed to.
+ */
+VkResult VulkanGraphicsStateGuardian::
+allocate_descriptor_set(VkDescriptorSetLayout layout, VkDescriptorSet &out,
+                        VkDescriptorPool *pool) {
+  VkDescriptorSetAllocateInfo alloc_info;
+  alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  alloc_info.pNext = nullptr;
+  alloc_info.descriptorPool = _descriptor_pool;
+  alloc_info.descriptorSetCount = 1;
+  alloc_info.pSetLayouts = &layout;
+  VkResult err = vkAllocateDescriptorSets(_device, &alloc_info, &out);
+  if (err == VK_ERROR_OUT_OF_POOL_MEMORY || err == VK_ERROR_FRAGMENTED_POOL) {
+    if (!create_descriptor_pool()) {
+      return err;
+    }
+    alloc_info.descriptorPool = _descriptor_pool;
+    err = vkAllocateDescriptorSets(_device, &alloc_info, &out);
+  }
+  if (err == VK_SUCCESS && pool != nullptr) {
+    *pool = _descriptor_pool;
+  }
+  return err;
+}
+
+/**
  * Waits for the given timeline semaphore to have reached the given value.
  */
 bool VulkanGraphicsStateGuardian::
@@ -5952,19 +5994,13 @@ get_attrib_descriptor_set(VkDescriptorSet &out,
       delete set._weak_ref;
     }
 
-    _frame_data->_pending_free_descriptor_sets.push_back(set._handle);
+    _frame_data->_pending_free_descriptor_sets.push_back({set._pool, set._handle});
     set._handle = VK_NULL_HANDLE;
   }
 
   VulkanShaderContext::DescriptorSet set;
 
-  VkDescriptorSetAllocateInfo alloc_info;
-  alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  alloc_info.pNext = nullptr;
-  alloc_info.descriptorPool = _descriptor_pool;
-  alloc_info.descriptorSetCount = 1;
-  alloc_info.pSetLayouts = &layout;
-  VkResult err = vkAllocateDescriptorSets(_device, &alloc_info, &set._handle);
+  VkResult err = allocate_descriptor_set(layout, set._handle, &set._pool);
   if (err) {
     vulkan_error(err, "Failed to allocate descriptor set for attribute");
     return false;
@@ -6072,18 +6108,13 @@ update_global_descriptor_set() {
   nassertr(_global_descriptor_set_layout != VK_NULL_HANDLE, false);
 
   if (_global_descriptor_set != VK_NULL_HANDLE) {
-    get_frame_data()._pending_free_descriptor_sets.push_back(_global_descriptor_set);
+    get_frame_data()._pending_free_descriptor_sets.push_back({_global_descriptor_pool, _global_descriptor_set});
     _global_descriptor_set = VK_NULL_HANDLE;
   }
 
-  VkDescriptorSetAllocateInfo alloc_info;
-  alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  alloc_info.pNext = nullptr;
-  alloc_info.descriptorPool = _descriptor_pool;
-  alloc_info.descriptorSetCount = 1;
-  alloc_info.pSetLayouts = &_global_descriptor_set_layout;
   VkResult
-  err = vkAllocateDescriptorSets(_device, &alloc_info, &_global_descriptor_set);
+  err = allocate_descriptor_set(_global_descriptor_set_layout, _global_descriptor_set,
+                                &_global_descriptor_pool);
   if (err) {
     vulkan_error(err, "Failed to allocate descriptor set for globals");
     return false;
@@ -6122,14 +6153,9 @@ update_dynamic_uniform_descriptor_set(VulkanShaderContext *sc) {
   nassertr(sc->_dynamic_uniform_descriptor_set_layout != VK_NULL_HANDLE, false);
 
   // Create a descriptor set for the UBOs.
-  VkDescriptorSetAllocateInfo alloc_info;
-  alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  alloc_info.pNext = nullptr;
-  alloc_info.descriptorPool = _descriptor_pool;
-  alloc_info.descriptorSetCount = 1;
-  alloc_info.pSetLayouts = &sc->_dynamic_uniform_descriptor_set_layout;
   VkResult
-  err = vkAllocateDescriptorSets(_device, &alloc_info, &sc->_uniform_descriptor_set);
+  err = allocate_descriptor_set(sc->_dynamic_uniform_descriptor_set_layout,
+                                sc->_uniform_descriptor_set);
   if (err) {
     vulkan_error(err, "Failed to allocate descriptor set for dynamic uniforms");
     return false;
