@@ -624,6 +624,18 @@ create_swapchain() {
     return false;
   }
 
+  // A minimized window's surface has no size (on Windows, at least), and no
+  // swapchain can be made for it.  Don't draw until it has one again; the
+  // size stays unmatched, so we are asked again each frame.
+  if (surf_caps.maxImageExtent.width == 0 || surf_caps.maxImageExtent.height == 0) {
+    if (vulkandisplay_cat.is_debug()) {
+      vulkandisplay_cat.debug()
+        << "Surface of VulkanGraphicsWindow " << this << " has no size; "
+        << "not creating a swap chain yet\n";
+    }
+    return false;
+  }
+
   uint32_t num_images = (uint32_t)(1 + _fb_properties.get_back_buffers());
   num_images = std::min(surf_caps.maxImageCount, num_images);
   num_images = std::max(surf_caps.minImageCount, num_images);
