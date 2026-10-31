@@ -2933,14 +2933,25 @@ dispatch_compute(int num_groups_x, int num_groups_y, int num_groups_z) {
   PStatGPUTimer timer(this, _current_sc->_compute_dispatch_pcollector);
 #endif
 
-  //TODO: must actually be outside render pass, and on a queue that supports
-  // compute.  Should we have separate pool/queue/buffer for compute?
   VkPipeline pipeline = _current_sc->get_compute_pipeline(this);
   nassertv(pipeline != VK_NULL_HANDLE);
+
+  // A dispatch may not happen inside a rendering pass (a ComputeNode drawn in
+  // a scene): end the pass, and resume it after, keeping the attachments.
+  VulkanFramebuffer *fb = _rendering_fb;
+  DrawableRegion *region = _rendering_region;
+  if (fb != nullptr) {
+    fb->end_rendering(this);
+  }
+
   _vkCmdBindPipeline(_render_cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
   _render_cmd.flush_barriers();
 
   vkCmdDispatch(_render_cmd, num_groups_x, num_groups_y, num_groups_z);
+
+  if (fb != nullptr) {
+    fb->begin_rendering(this, region, true);
+  }
 }
 
 /**

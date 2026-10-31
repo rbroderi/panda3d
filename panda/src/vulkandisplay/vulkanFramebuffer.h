@@ -96,7 +96,8 @@ public:
                       Texture *resolve_texture = nullptr);
   void destroy(VulkanGraphicsStateGuardian *vkgsg);
 
-  bool begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region);
+  bool begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region,
+                       bool resume = false);
   void end_rendering(VulkanGraphicsStateGuardian *vkgsg);
 
 public:
