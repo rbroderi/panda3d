@@ -169,6 +169,43 @@ Validation with sync checks over the run: no ray-query messages.  (Each
 `save_screenshot` of the window leaves its image in TRANSFER_SRC layout at
 present: an existing readback bug, not this work.)
 
+## Second use: one bounce into the colony's probes
+
+Engine additions for it:
+
+- **Position fetch.**  Where VK_KHR_ray_tracing_position_fetch is present
+  (the 780M has it) it is enabled and meshes are built with
+  `ALLOW_DATA_ACCESS`, so a shader reads a hit triangle's corners
+  (`rayQueryGetIntersectionTriangleVertexPositionsEXT`) for its normal.
+- **Ray queries in compute shaders** work through the same descriptor path
+  (`samples/ray-query/compute.py`: 16 384 rays, distance, fetched normal and
+  instance index all match a CPU reference).
+- **Compute dispatch inside a frame.**  A `ComputeNode` drawn in a scene
+  used to dispatch inside the window's dynamic rendering pass, which Vulkan
+  forbids.  The GSG now ends the pass, dispatches, and resumes it with
+  LOAD (attachments are always stored).  This matters for cost:
+  `GraphicsEngine::dispatch_compute` from the App thread waits for the draw
+  thread, which cost the game ~16 ms a frame; a ComputeNode in its own
+  display region (sorted first) costs the App thread 0.1 ms.
+
+The game's pass (`ray_bounce.py`): for each probe of the baked 2 m grid
+(66x66x10 here) within reach of a shot light, 4 cosine-weighted rays per
+side (24 a probe), closest hit, normal from the fetched corners (a back
+face marks the probe as inside), the shot lights' direct light at the hit
+(one shadow ray each) times the instance's albedo (packed in its custom
+index).  A quarter of the probes a frame.  The shaders read the volume
+like the baked probes and add `diffuse * bounce`.
+
+Same-session A/B, 4 lights round the HQ, 1920x1200: none 23.0 ms,
+shadows 24.0 ms, shadows + bounce 26.7 ms.  Validation: no messages from
+the bounce pass, the compute dispatch or the resumed pass.
+
+Known: under the validation layer, a process that leaves Panda's global
+GraphicsEngine to close the GSG at exit aborts in the layer
+(`vkDeviceWaitIdle` after the layer is torn down); and an offscreen
+buffer is destroyed at exit while its last frame is in flight (two
+VUID-vkDestroyImage-image-01000).  Both are older than this work.
+
 ## Toward live global illumination
 
 Measured so far, a shadow ray costs well under a millisecond per million
