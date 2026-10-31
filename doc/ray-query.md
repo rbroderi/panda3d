@@ -150,6 +150,49 @@ build; `-Validate` turns on the Khronos layer with synchronization checks):
   incoherent rays will cost more.  The rebuild cost is mostly CPU: copying
   the instance list, allocating the buffers, writing the instances.
 
+## First use: Glass Accord's colony view
+
+The game's shot lights (fires, blasts, guns: up to 8 point lights, no
+shadows before) now trace one shadow ray per light per lit fragment, in
+the surface, land and debris shaders, against a RayTraceScene of the
+colony's buildings and ground (one RayTraceMesh per Geom, one instance per
+GeomNode; 13 buildings + ground = 39 instances, 91 472 triangles, built in
+0.6 ms of Python plus the GPU build once).  Same-session A/B on the 780M at
+1920x1200, frames alternating traced/untraced:
+
+| lights near the buildings | untraced | traced |
+|---|---|---|
+| 4 (a ring round the HQ) | 24.3 ms | 25.9 ms (+1.6) |
+| 8 (18 m reach, 25 power) | 22.3-24.0 ms | 24.8-27.4 ms (+2.5-3.5) |
+
+Validation with sync checks over the run: no ray-query messages.  (Each
+`save_screenshot` of the window leaves its image in TRANSFER_SRC layout at
+present: an existing readback bug, not this work.)
+
+## Toward live global illumination
+
+Measured so far, a shadow ray costs well under a millisecond per million
+pixels, and a few thousand instances rebuild in about a millisecond.  So:
+
+1. **One-bounce light from the dynamic lights into the colony's probe
+   grid** is the cheap route to "blasts light up nearby walls and ground".
+   The game already reads a 2 m six-sided probe grid in its shaders.  A
+   compute pass each frame updates the probes near active lights: each
+   probe casts N rays (16-32) against the scene, and at each hit adds the
+   shot lights' direct light there (one shadow ray per light) times the
+   hit's albedo.  32x32x16 probes x 16 rays = 260k rays a frame, a small
+   fraction of the per-pixel shadow cost.  Needs: hit normals (the 780M has
+   VK_KHR_ray_tracing_position_fetch, or per-geometry normal buffers) and
+   albedo (a per-instance material table indexed by the instance custom
+   index), plus ray queries in compute shaders (same descriptor path as
+   fragment shaders; not tested yet).
+2. **Per-pixel one-bounce** (screen-space-sized ray budget, 1-2 rays a
+   pixel, temporal accumulation and a denoiser) gives sharper contact
+   bounce but costs several ms on this GPU; worth it only after 1.
+3. Engine work for both: TLAS refit (`ALLOW_UPDATE`) for many moving
+   instances, `get_supports_ray_query()` on the GSG, a NodePath helper, and
+   building from Panda's vertex buffers for big meshes.
+
 ## Not done / next
 
 1. Pipelined (per-frame) TLAS updates with
