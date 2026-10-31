@@ -833,6 +833,13 @@ reset() {
     _supported_shader_caps |= Shader::C_clip_distance;
   }
 
+  if (_supports_ray_query) {
+    _supported_shader_caps |= Shader::C_ray_query;
+  }
+  if (_supports_ray_position_fetch) {
+    _supported_shader_caps |= Shader::C_ray_query_position_fetch;
+  }
+
   if (features.shaderCullDistance) {
     _supported_shader_caps |= Shader::C_cull_distance;
   }

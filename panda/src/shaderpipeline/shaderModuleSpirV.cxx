@@ -118,6 +118,15 @@ ShaderModuleSpirV(Stage stage, std::vector<uint32_t> words, const CompilerOption
         _used_caps |= C_derivative_control;
         break;
 
+      case spv::CapabilityRayQueryKHR:
+        _used_caps |= C_ray_query;
+        break;
+
+      case spv::CapabilityRayQueryPositionFetchKHR:
+      case spv::CapabilityRayTracingPositionFetchKHR:
+        _used_caps |= C_ray_query_position_fetch;
+        break;
+
       default:
         break;
       }

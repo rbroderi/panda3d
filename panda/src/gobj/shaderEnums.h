@@ -138,6 +138,11 @@ PUBLISHED:
 
     // Debugging features (not linked to any particular version)
     C_debug_output = 1ull << 43,
+
+    // Ray queries (GL_EXT_ray_query; Vulkan only), and reading a hit
+    // triangle's corners (GL_EXT_ray_tracing_position_fetch)
+    C_ray_query = 1ull << 44,
+    C_ray_query_position_fetch = 1ull << 45,
   };
 
   enum Dependency {

@@ -170,6 +170,12 @@ output_capabilities(std::ostream &out, uint64_t caps) {
   if (caps & C_debug_output) {
     out << "debug_output ";
   }
+  if (caps & C_ray_query) {
+    out << "ray_query ";
+  }
+  if (caps & C_ray_query_position_fetch) {
+    out << "ray_query_position_fetch ";
+  }
 }
 
 /**
