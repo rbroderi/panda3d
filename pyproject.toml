@@ -1,0 +1,13 @@
+# Lets pip and uv install this tree's makepanda build in place (editably):
+#   uv add --editable path/to/this/tree
+# makepanda still builds Panda3D; makepanda/editable_backend.py only points
+# the environment at its output in built/. Name and version are setup.cfg's.
+
+[build-system]
+requires = []
+build-backend = "editable_backend"
+backend-path = ["makepanda"]
+
+[project]
+name = "panda3d"
+dynamic = ["version", "description"]
