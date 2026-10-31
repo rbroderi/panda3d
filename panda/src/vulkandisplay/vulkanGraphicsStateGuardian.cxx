@@ -5548,6 +5548,10 @@ create_buffer(VkDeviceSize size, VkBuffer &buffer, VulkanMemoryBlock &block,
               int usage_flags, VulkanMemoryPolicy policy) {
   VulkanGraphicsPipe *vkpipe;
   DCAST_INTO_R(vkpipe, get_pipe(), false);
+  if (size == 0) {
+    // An empty vertex array, say.  A buffer can't be empty.
+    size = 4;
+  }
 
   VkBufferCreateInfo buf_info;
   buf_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
