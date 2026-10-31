@@ -408,6 +408,16 @@ parse_instruction(spv::Op opcode, const uint32_t *args, uint32_t nargs, uint32_t
     record_type(args[0], ShaderType::SAMPLER);
     break;
 
+  case spv::OpTypeAccelerationStructureKHR:
+    record_type(args[0], ShaderType::ACCELERATION_STRUCTURE);
+    break;
+
+  case spv::OpTypeRayQueryKHR:
+    // Only ever used for function-local or private variables, which Panda
+    // does not need to know the type of.
+    record_type(args[0], nullptr);
+    break;
+
   case spv::OpTypeSampledImage:
     if (const ShaderType::Image *image = _defs[args[1]]._type->as_image()) {
       bool shadow = (_defs[args[1]]._flags & DF_depth_image) != 0;
@@ -651,6 +661,42 @@ parse_instruction(spv::Op opcode, const uint32_t *args, uint32_t nargs, uint32_t
   case spv::OpCopyMemorySized:
     mark_used(args[0]);
     mark_used(args[1]);
+    break;
+
+  case spv::OpRayQueryInitializeKHR:
+  case spv::OpRayQueryTerminateKHR:
+  case spv::OpRayQueryGenerateIntersectionKHR:
+  case spv::OpRayQueryConfirmIntersectionKHR:
+    // These take a pointer to the ray query object, which they write.
+    mark_used(args[0]);
+    break;
+
+  case spv::OpRayQueryProceedKHR:
+  case spv::OpRayQueryGetIntersectionTypeKHR:
+  case spv::OpRayQueryGetRayTMinKHR:
+  case spv::OpRayQueryGetRayFlagsKHR:
+  case spv::OpRayQueryGetIntersectionTKHR:
+  case spv::OpRayQueryGetIntersectionInstanceCustomIndexKHR:
+  case spv::OpRayQueryGetIntersectionInstanceIdKHR:
+  case spv::OpRayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetKHR:
+  case spv::OpRayQueryGetIntersectionGeometryIndexKHR:
+  case spv::OpRayQueryGetIntersectionPrimitiveIndexKHR:
+  case spv::OpRayQueryGetIntersectionBarycentricsKHR:
+  case spv::OpRayQueryGetIntersectionFrontFaceKHR:
+  case spv::OpRayQueryGetIntersectionCandidateAABBOpaqueKHR:
+  case spv::OpRayQueryGetIntersectionObjectRayDirectionKHR:
+  case spv::OpRayQueryGetIntersectionObjectRayOriginKHR:
+  case spv::OpRayQueryGetWorldRayDirectionKHR:
+  case spv::OpRayQueryGetWorldRayOriginKHR:
+  case spv::OpRayQueryGetIntersectionObjectToWorldKHR:
+  case spv::OpRayQueryGetIntersectionWorldToObjectKHR:
+  case spv::OpRayQueryGetIntersectionTriangleVertexPositionsKHR:
+    // These read the ray query object through its pointer.
+    mark_used(args[2]);
+    {
+      Definition &def = modify_definition(args[1]);
+      def._type_id = args[0];
+    }
     break;
 
   case spv::OpAccessChain:

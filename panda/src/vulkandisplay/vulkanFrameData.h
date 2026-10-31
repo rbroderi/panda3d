@@ -52,6 +52,7 @@ public:
   pvector<VkImage> _pending_destroy_images;
   pvector<VkImageView> _pending_destroy_image_views;
   pvector<VkSampler> _pending_destroy_samplers;
+  pvector<VkAccelerationStructureKHR> _pending_destroy_acceleration_structures;
   pvector<VkSemaphore> _pending_destroy_semaphores;
   // Each with the pool it was allocated from.
   pvector<std::pair<VkDescriptorPool, VkDescriptorSet> > _pending_free_descriptor_sets;

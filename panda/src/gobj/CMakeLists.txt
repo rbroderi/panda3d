@@ -48,6 +48,8 @@ set(P3GOBJ_HEADERS
   samplerState.h samplerState.I
   savedContext.I savedContext.h
   shader.I shader.h
+  rayTraceMesh.h rayTraceMesh.I
+  rayTraceScene.h
   shaderBuffer.h shaderBuffer.I
   shaderCompiler.h
   shaderCompilerRegistry.h
@@ -134,6 +136,8 @@ set(P3GOBJ_SOURCES
   samplerState.cxx
   savedContext.cxx
   shader.cxx
+  rayTraceMesh.cxx
+  rayTraceScene.cxx
   shaderBuffer.cxx
   shaderCompiler.cxx
   shaderCompilerRegistry.cxx

@@ -43,6 +43,7 @@ TypeHandle ShaderType::Image::_type_handle;
 TypeHandle ShaderType::Sampler::_type_handle;
 TypeHandle ShaderType::SampledImage::_type_handle;
 TypeHandle ShaderType::StorageBuffer::_type_handle;
+TypeHandle ShaderType::AccelerationStructure::_type_handle;
 
 const ShaderType::Void *ShaderType::VOID;
 const ShaderType::Scalar *ShaderType::BOOL;
@@ -51,6 +52,7 @@ const ShaderType::Scalar *ShaderType::UINT;
 const ShaderType::Scalar *ShaderType::FLOAT;
 const ShaderType::Scalar *ShaderType::DOUBLE;
 const ShaderType::Sampler *ShaderType::SAMPLER;
+const ShaderType::AccelerationStructure *ShaderType::ACCELERATION_STRUCTURE;
 
 /**
  * If this type is an array, puts the element type in the first argument and the
@@ -112,6 +114,7 @@ init_type() {
   ::register_type(Sampler::_type_handle, "ShaderType::Sampler", _type_handle);
   ::register_type(SampledImage::_type_handle, "ShaderType::SampledImage", _type_handle);
   ::register_type(StorageBuffer::_type_handle, "ShaderType::StorageBuffer", _type_handle);
+  ::register_type(AccelerationStructure::_type_handle, "ShaderType::AccelerationStructure", _type_handle);
 
   ShaderType::VOID = ShaderType::register_type(ShaderType::Void());
   ShaderType::BOOL = ShaderType::register_type(ShaderType::Scalar(ST_bool));
@@ -120,6 +123,7 @@ init_type() {
   ShaderType::FLOAT = ShaderType::register_type(ShaderType::Scalar(ST_float));
   ShaderType::DOUBLE = ShaderType::register_type(ShaderType::Scalar(ST_double));
   ShaderType::SAMPLER = ShaderType::register_type(ShaderType::Sampler());
+  ShaderType::ACCELERATION_STRUCTURE = ShaderType::register_type(ShaderType::AccelerationStructure());
 
   scalar_types[ShaderType::ST_float] = ShaderType::FLOAT;
   scalar_types[ShaderType::ST_double] = ShaderType::DOUBLE;
@@ -144,6 +148,7 @@ register_with_read_factory() {
   factory->register_factory(Sampler::_type_handle, Sampler::make_from_bam);
   factory->register_factory(SampledImage::_type_handle, SampledImage::make_from_bam);
   factory->register_factory(StorageBuffer::_type_handle, StorageBuffer::make_from_bam);
+  factory->register_factory(AccelerationStructure::_type_handle, AccelerationStructure::make_from_bam);
 }
 
 /**
@@ -1560,3 +1565,39 @@ make_from_bam(const FactoryParams &params) {
 #endif
 
 #endif  // CPPPARSER
+
+/**
+ *
+ */
+void ShaderType::AccelerationStructure::
+output(std::ostream &out) const {
+  out << "accelerationStructure";
+}
+
+/**
+ * Outputs a signature that compactly but uniquely identifies this type.
+ */
+void ShaderType::AccelerationStructure::
+output_signature(std::ostream &out) const {
+  out << 'A';
+}
+
+/**
+ * Private implementation of compare_to, only called for types with the same
+ * TypeHandle.
+ */
+int ShaderType::AccelerationStructure::
+compare_to_impl(const ShaderType &other) const {
+  // All acceleration structures are the same type.
+  return 0;
+}
+
+/**
+ * This function is called by the BamReader's factory when a new object of
+ * type ShaderType is encountered in the Bam file.  It should create the
+ * ShaderType and extract its information from the file.
+ */
+TypedWritable *ShaderType::AccelerationStructure::
+make_from_bam(const FactoryParams &params) {
+  return (ShaderType *)ShaderType::ACCELERATION_STRUCTURE;
+}

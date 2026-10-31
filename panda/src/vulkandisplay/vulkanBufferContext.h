@@ -34,6 +34,11 @@ public:
 public:
   VkBuffer _buffer;
   VulkanMemoryBlock _block;
+
+  // Used for a RayTraceScene: the top-level acceleration structure, stored
+  // in _buffer, and the scene's modified seq it was built from.
+  VkAccelerationStructureKHR _acceleration_structure = VK_NULL_HANDLE;
+  UpdateSeq _built_seq;
   // If false, extraction copies through a readback staging buffer, because
   // reading the buffer's own memory directly is impossible or too slow.
   bool _direct_readback = false;
