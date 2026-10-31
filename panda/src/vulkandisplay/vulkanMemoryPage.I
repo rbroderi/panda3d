@@ -69,7 +69,7 @@ VulkanMemoryPage(VulkanMemoryPage &&from) :
  */
 INLINE VulkanMemoryPage::
 ~VulkanMemoryPage() {
-  if (_memory != VK_NULL_HANDLE) {
+  if (_memory != VK_NULL_HANDLE && !vulkan_process_exiting) {
     vkFreeMemory(_device, _memory, nullptr);
     _memory = VK_NULL_HANDLE;
     _persistent_ptr = nullptr;

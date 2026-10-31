@@ -207,6 +207,11 @@ end_frame(FrameMode mode, Thread *current_thread) {
  */
 void VulkanGraphicsBuffer::
 close_buffer() {
+  if (vulkan_process_exiting) {
+    // Too late to talk to Vulkan (see config_vulkandisplay).
+    _gsg.clear();
+    return;
+  }
   if (!_gsg.is_null()) {
     VulkanGraphicsStateGuardian *vkgsg;
     DCAST_INTO_V(vkgsg, _gsg);
