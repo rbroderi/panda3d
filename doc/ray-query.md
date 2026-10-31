@@ -64,12 +64,15 @@ Choices:
   NodePath's GeomNodes into meshes and instances belongs to the
   application for now (the game's `ray_scene.py`), because gobj cannot see
   pgraph; a `NodePath`-level helper could go in pgraph later.
-- **Triangles are copied on `add_geom`.**  The mesh owns float3 positions
-  and uint32 indices; each Geom becomes one geometry (so a hit's geometry
-  index says which Geom).  Copying avoids touching Panda's vertex buffers
-  (their usage flags, the munger's formats, animation) and lets the GSG
-  build from any Geom, munged or not.  The cost is CPU memory and an upload
-  per build; static voxel buildings and terrain are built once.
+- **Triangles are copied on `add_geom`** (by default).  The mesh owns
+  float3 positions and uint32 indices; each Geom becomes one geometry (so a
+  hit's geometry index says which Geom).  Copying lets the GSG build from
+  any Geom, munged or not.  The cost is CPU memory and an upload per build;
+  static voxel buildings and terrain are built once.  Skinned or morphed
+  Geoms are copied *posed*; `update_animation()` poses them again and the
+  structure is refitted.  With `ray-trace-reference-geoms true`, plain
+  triangle Geoms are built straight from their own vertex and index buffers
+  instead (one geometry per primitive); off by default, see below.
 - **`RayTraceScene` derives from `ShaderBuffer`.**  So it reuses
   `ShaderInput`'s buffer path, `ShaderBufferBinding`, `prepare_now` and
   release with no new input type.  A shader parameter of the new
@@ -79,11 +82,13 @@ Choices:
   plain ShaderBuffer there is reported; passing nothing gives a null
   descriptor (robustness2 `nullDescriptor`), which every ray misses, so a
   shader can be shared by scenes that have no structure.
-- **Rebuilding, not refitting.**  Any change to a scene's instances bumps an
-  `UpdateSeq`; the next use builds a *new* TLAS and queues the old one for
-  destruction when the frame using it has finished.  No write-after-read
-  hazard with frames in flight, and no barrier that waits on earlier work.
-  A TLAS over a few thousand instances builds in well under a millisecond.
+- **A new structure for each change.**  Any change to a scene's instances
+  bumps an `UpdateSeq`; the next use makes a *new* TLAS and queues the old
+  one for destruction when the frame using it has finished, so frames in
+  flight never see a structure change under them.  If only instances moved
+  (the same layout, and every instance's mesh structure at the same
+  address), the new one is refitted from the old (`MODE_UPDATE`); else it
+  is built.  Static meshes are compacted a frame or so after their build.
 - **Thread safety.**  The scene's instance list is under a `LightMutex`;
   the GSG copies it under the lock when building, so the App thread can
   move instances while Draw builds (`threading-model Cull/Draw`).
@@ -236,6 +241,46 @@ Still not done:
   (access violation in `Extension<NodePath>::set_shader_input`) instead of
   raising: upstream code, not changed here.
 
+## Fourth pass (2026-10-31)
+
+Engine:
+- TLAS refit for scenes whose instances only move; BLAS compaction for
+  static meshes; skinned and morphed Geoms posed and refitted
+  (`samples/ray-query/animated.py`: 0 disagreements with a CPU trace at two
+  walk poses, 6677 rays' hits moved between them).
+- Builds from Geoms' own vertex and index buffers, behind
+  `ray-trace-reference-geoms` (default false).  On the 780M (25.20
+  drivers) the game's space battle, built that way, lost the device a few
+  hundred frames later, every time or nearly, and never with copies.
+  VK_EXT_device_fault reported a read fault at an address outside every
+  buffer Panda made.  Ruled out: compaction, scene refit, position fetch
+  and ALLOW_DATA_ACCESS, the per-geometry transforms, 256-byte alignment
+  of the inputs, and bad input (indices and positions checked on the CPU).
+  The tests and samples pass with it on.
+- `GraphicsStateGuardian::get_supports_ray_query_position_fetch()`.
+- pytest: `tests/gobj/test_ray_trace.py` (no GPU) and
+  `tests/display/test_ray_query.py` (Vulkan).  The gobj classes build
+  under CMake (`p3gobj`); vulkandisplay has no CMake support upstream.
+- Exit under the validation layer no longer aborts: after `atexit`, closing
+  windows, buffers and the GSG leaves Vulkan alone.
+- Zero-size buffers (empty vertex arrays) are made 4 bytes.
+
+Found in passing (not ray queries):
+- `NodePath.set_shader_input(s)` on an empty NodePath raises instead of
+  crashing.
+- tests/display crashed on this AMD GPU: the GL driver's GL_ARB_gl_spirv
+  is broken (uniform locations), so SPIR-V is transpiled there instead;
+  and the Vulkan driver crashed on `debugPrintfEXT` with a string, so
+  printf calls are stripped without the validation layer.  27 display
+  tests still fail (GL cross-compiled old GLSL versions, Vulkan
+  PointerToArray vec3/vec4 inputs, Vulkan fixed-function transparency).
+- CMake: OpenGL and DirectX 9 now say at configure time that they need
+  SPIRV-Cross.
+
+Still not done:
+- Why referenced builds lose the device in the game on AMD.
+- A NodePath helper in C++.
+
 ## Toward live global illumination
 
 Measured so far, a shadow ray costs well under a millisecond per million
@@ -262,18 +307,15 @@ pixels, and a few thousand instances rebuild in about a millisecond.  So:
 
 ## Not done / next
 
-1. Pipelined (per-frame) TLAS updates with
-   `ALLOW_UPDATE` + `MODE_UPDATE` for scenes whose instances move every
-   frame, with a ring of structures per frame in flight; and BLAS
-   compaction for big static meshes.
-2. Build from Panda's own vertex buffers (needs `SHADER_DEVICE_ADDRESS`
-   and `AS_BUILD_INPUT` usage on them) to skip the CPU copy.
-3. A NodePath helper (`RayTraceScene.add_node(np)` in pgraph or a Python
+(TLAS refit, compaction, builds from Panda's buffers and
+`get_supports_ray_query()` are done: see the fourth pass.)
+
+1. Find why referenced builds lose the device on AMD, then turn
+   `ray-trace-reference-geoms` on by default.
+2. A NodePath helper (`RayTraceScene.add_node(np)` in pgraph or a Python
    extension) that flattens GeomNodes into meshes and instances.
-4. `GraphicsStateGuardian::get_supports_ray_query()` so applications can
-   choose a path without knowing the GSG class.
-5. The OpenGL backend: GL_EXT_ray_query does not exist there; nothing to do.
-6. Hit attributes beyond the hit itself (barycentrics, primitive and
+3. The OpenGL backend: GL_EXT_ray_query does not exist there; nothing to do.
+4. Hit attributes beyond the hit itself (barycentrics, primitive and
    instance indices) already work through GLSL; reading the hit's material
    needs per-geometry buffers the application provides (SSBOs indexed by
    `rayQueryGetIntersectionInstanceCustomIndexEXT`).
