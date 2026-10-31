@@ -2308,6 +2308,19 @@ reset() {
        _glSpecializeShader != nullptr) {
       _supports_spir_v = true;
     }
+
+    if (_supports_spir_v && _gl_vendor == "ATI Technologies Inc.") {
+      // The AMD driver crashes when asked for the GL_LOCATION of a uniform in
+      // a SPIR-V program (it ignores the OpNames, and seems to look the
+      // location up by name), and values set at the locations the binary
+      // assigns don't reach the shader.  Found with the 25.20 drivers on
+      // Windows 11; transpile the shaders to GLSL instead.
+      if (GLCAT.is_debug()) {
+        GLCAT.debug()
+          << "Not using GL_ARB_gl_spirv, which is broken on this driver\n";
+      }
+      _supports_spir_v = false;
+    }
   }
 #endif
 
