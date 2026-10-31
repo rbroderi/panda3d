@@ -458,9 +458,11 @@ private:
     VkDeviceSize _update_scratch_size = 0;
     // Built to be refitted (an animated mesh's).
     bool _can_update = false;
-    // A static mesh's compacted size is asked for in this, after a build.
+    // A static mesh's compacted size is asked for in this, after a build, by
+    // the given frame; it may be read once that frame is done.
     VkQueryPool _query_pool = VK_NULL_HANDLE;
     bool _compaction_pending = false;
+    uint64_t _compaction_frame = 0;
   };
   void release_ray_trace_mesh_structure(RayTraceMeshData &data);
   typedef pmap<PT(RayTraceMesh), RayTraceMeshData> RayTraceMeshes;

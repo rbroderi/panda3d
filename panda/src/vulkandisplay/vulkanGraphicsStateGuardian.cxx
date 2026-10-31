@@ -3169,6 +3169,13 @@ compact_ray_trace_meshes() {
     if (!data._compaction_pending || data._handle == VK_NULL_HANDLE) {
       continue;
     }
+    if (data._compaction_frame > _last_finished_frame) {
+      // Not before the frame that reset and wrote the query is done: till its
+      // reset has run, a new pool's query may read as available, with any
+      // size in it, and a copy that size makes a corrupt structure (which
+      // lost the device, on AMD, frames later).
+      continue;
+    }
     VkDeviceSize compact_size = 0;
     VkResult err = vkGetQueryPoolResults(_device, data._query_pool, 0, 1,
                                          sizeof(compact_size), &compact_size,
@@ -3536,6 +3543,7 @@ build_ray_trace_meshes(const pvector<RayTraceScene::Instance> &instances) {
         to_query.push_back(handle);
         query_pools.push_back(data._query_pool);
         data._compaction_pending = true;
+        data._compaction_frame = _frame_data->_frame_index;
       }
     }
   }
