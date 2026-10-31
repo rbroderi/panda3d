@@ -6318,7 +6318,7 @@ choose_fb_config(FbConfig &out, FrameBufferProperties &props,
     {15,  5,  5,  5,  1, false, VK_FORMAT_A1R5G5B5_UNORM_PACK16},
     {16, 16,  0,  0,  0,  true, VK_FORMAT_R16_SFLOAT},
     {24,  8,  8,  8,  8, false, VK_FORMAT_B8G8R8A8_UNORM},
-    {32, 16, 16,  0,  0, false, VK_FORMAT_R16G16_SFLOAT},
+    {32, 16, 16,  0,  0,  true, VK_FORMAT_R16G16_SFLOAT},
     {30, 10, 10, 10,  2, false, VK_FORMAT_A2B10G10R10_UNORM_PACK32},
     {48, 16, 16, 16, 16,  true, VK_FORMAT_R16G16B16A16_SFLOAT},
     {32, 32,  0,  0,  0,  true, VK_FORMAT_R32_SFLOAT},
@@ -6346,8 +6346,29 @@ choose_fb_config(FbConfig &out, FrameBufferProperties &props,
           formats[i].rgb >= props.get_color_bits() &&
           formats[i].has_float >= props.get_float_color()) {
 
-        // This format meets the requirements.
-        out._color_formats.push_back(VK_FORMAT_B8G8R8A8_SRGB);
+        // An RGB buffer needs all three channels (a low bit count must not
+        // pick a one- or two-channel format), and Panda must have a texture
+        // format for it (render-to-texture sets the texture's from it).
+        if (props.get_rgb_color() && (formats[i].g == 0 || formats[i].b == 0)) {
+          continue;
+        }
+        Texture::Format tex_format;
+        Texture::ComponentType tex_component_type;
+        if (!lookup_image_format(formats[i].format, tex_format, tex_component_type)) {
+          continue;
+        }
+
+        // It must be one the GPU can render into.
+        VkFormatProperties color_props;
+        vkGetPhysicalDeviceFormatProperties(vkpipe->_gpu, formats[i].format, &color_props);
+        if ((color_props.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) == 0) {
+          continue;
+        }
+
+        // This format meets the requirements.  (It was always the 8-bit sRGB
+        // format here, whatever was asked for: a float buffer, as a
+        // post-process's, lost all its light over 1.0.)
+        out._color_formats.push_back(formats[i].format);
         props.set_rgba_bits(formats[i].r, formats[i].g,
                             formats[i].b, formats[i].a);
         break;
