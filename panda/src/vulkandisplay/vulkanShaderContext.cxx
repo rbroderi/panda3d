@@ -14,6 +14,7 @@
 #include "vulkanShaderContext.h"
 #include "vulkanBufferContext.h"
 #include "vulkanTextureContext.h"
+#include "rayTraceScene.h"
 #include "spirVTransformer.h"
 #include "spirVConvertBoolToIntPass.h"
 #include "spirVHoistStructResourcesPass.h"
@@ -702,6 +703,10 @@ r_extract_resources(const Shader::Parameter &param, const AccessChain &chain,
       desc._type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
       desc._access = buffer->get_access();
     }
+    else if (type->as_acceleration_structure() != nullptr) {
+      desc._type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+      desc._access = ShaderType::Access::READ_ONLY;
+    }
   }
 
   return nullptr;
@@ -843,7 +848,9 @@ fetch_descriptor(VulkanGraphicsStateGuardian *gsg, const Descriptor &desc,
                  VkWriteDescriptorSet &write,
                  VkDescriptorImageInfo *&image_infos,
                  VkDescriptorBufferInfo *&buffer_infos,
-                 VkBufferView *&texel_buffer_views) {
+                 VkBufferView *&texel_buffer_views,
+                 VkWriteDescriptorSetAccelerationStructureKHR *&as_writes,
+                 VkAccelerationStructureKHR *&as_handles) {
 
   ShaderInputBinding::State state;
   state.gsg = gsg;
@@ -968,6 +975,31 @@ fetch_descriptor(VulkanGraphicsStateGuardian *gsg, const Descriptor &desc,
     }
     break;
 
+  case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR:
+    {
+      VkWriteDescriptorSetAccelerationStructureKHR &as_write = *as_writes++;
+      as_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+      as_write.pNext = nullptr;
+      as_write.accelerationStructureCount = write.descriptorCount;
+      as_write.pAccelerationStructures = as_handles;
+      write.pNext = &as_write;
+
+      for (ResourceId id : desc._resource_ids) {
+        PT(ShaderBuffer) buffer = desc._binding->fetch_shader_buffer(state, id);
+        RayTraceScene *scene = nullptr;
+        if (buffer != nullptr && buffer->is_of_type(RayTraceScene::get_class_type())) {
+          scene = (RayTraceScene *)buffer.p();
+        }
+        else if (buffer != nullptr) {
+          vulkandisplay_cat.error()
+            << *buffer << " is not a RayTraceScene\n";
+        }
+        // A null descriptor (with nullDescriptor) misses every ray.
+        *as_handles++ = gsg->use_ray_trace_scene(scene);
+      }
+    }
+    break;
+
   default:
     nassertr(false, false);
     return false;
@@ -987,11 +1019,13 @@ update_tattr_descriptor_set(VulkanGraphicsStateGuardian *gsg, VkDescriptorSet ds
   VkDescriptorImageInfo *image_infos = (VkDescriptorImageInfo *)alloca(_num_tattr_descriptor_elements * sizeof(VkDescriptorImageInfo));
   VkDescriptorBufferInfo *buffer_infos = (VkDescriptorBufferInfo *)alloca(_num_tattr_descriptor_elements * sizeof(VkDescriptorBufferInfo));
   VkBufferView *texel_buffer_views = (VkBufferView *)alloca(_num_tattr_descriptor_elements * sizeof(VkBufferView));
+  VkWriteDescriptorSetAccelerationStructureKHR *as_writes = (VkWriteDescriptorSetAccelerationStructureKHR *)alloca(_tattr_descriptors.size() * sizeof(VkWriteDescriptorSetAccelerationStructureKHR));
+  VkAccelerationStructureKHR *as_handles = (VkAccelerationStructureKHR *)alloca(_num_tattr_descriptor_elements * sizeof(VkAccelerationStructureKHR));
 
   size_t wi = 0;
   size_t di = 0;
   for (const Descriptor &desc : _tattr_descriptors) {
-    if (!fetch_descriptor(gsg, desc, writes[wi], image_infos, buffer_infos, texel_buffer_views)) {
+    if (!fetch_descriptor(gsg, desc, writes[wi], image_infos, buffer_infos, texel_buffer_views, as_writes, as_handles)) {
       return false;
     }
     writes[wi].dstSet = ds;
@@ -1015,6 +1049,8 @@ update_sattr_descriptor_set(VulkanGraphicsStateGuardian *gsg, VkDescriptorSet ds
   VkDescriptorImageInfo *image_infos = (VkDescriptorImageInfo *)alloca(_num_sattr_descriptor_elements * sizeof(VkDescriptorImageInfo));
   VkDescriptorBufferInfo *buffer_infos = (VkDescriptorBufferInfo *)alloca(_num_sattr_descriptor_elements * sizeof(VkDescriptorBufferInfo));
   VkBufferView *texel_buffer_views = (VkBufferView *)alloca(_num_sattr_descriptor_elements * sizeof(VkBufferView));
+  VkWriteDescriptorSetAccelerationStructureKHR *as_writes = (VkWriteDescriptorSetAccelerationStructureKHR *)alloca(max_num_descriptors * sizeof(VkWriteDescriptorSetAccelerationStructureKHR));
+  VkAccelerationStructureKHR *as_handles = (VkAccelerationStructureKHR *)alloca(_num_sattr_descriptor_elements * sizeof(VkAccelerationStructureKHR));
 
   // First the UBO, then the shader input textures.
   size_t di = 0;
@@ -1041,7 +1077,7 @@ update_sattr_descriptor_set(VulkanGraphicsStateGuardian *gsg, VkDescriptorSet ds
   }
 
   for (const Descriptor &desc : _sattr_descriptors) {
-    if (!fetch_descriptor(gsg, desc, writes[wi], image_infos, buffer_infos, texel_buffer_views)) {
+    if (!fetch_descriptor(gsg, desc, writes[wi], image_infos, buffer_infos, texel_buffer_views, as_writes, as_handles)) {
       return false;
     }
     writes[wi].dstSet = ds;

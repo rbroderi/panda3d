@@ -65,7 +65,9 @@ public:
                         const Descriptor &desc, VkWriteDescriptorSet &write,
                         VkDescriptorImageInfo *&image_infos,
                         VkDescriptorBufferInfo *&buffer_infos,
-                        VkBufferView *&texel_buffer_views);
+                        VkBufferView *&texel_buffer_views,
+                        VkWriteDescriptorSetAccelerationStructureKHR *&as_writes,
+                        VkAccelerationStructureKHR *&as_handles);
   bool update_tattr_descriptor_set(VulkanGraphicsStateGuardian *gsg, VkDescriptorSet ds);
   bool update_sattr_descriptor_set(VulkanGraphicsStateGuardian *gsg, VkDescriptorSet ds);
   uint32_t update_sattr_uniforms(VulkanGraphicsStateGuardian *gsg, VkBuffer &buffer);

@@ -70,6 +70,14 @@ ConfigVariableBool vulkan_support_custom_border_color
           "If you do not need to use a different border color than these, it "
           "is strongly recommended to set this to false."));
 
+ConfigVariableBool vulkan_ray_query
+("vulkan-ray-query", true,
+ PRC_DESC("If this is set to true, and the video card supports ray queries "
+          "(VK_KHR_ray_query and VK_KHR_acceleration_structure), they are "
+          "enabled, so that shaders can trace rays against a RayTraceScene.  "
+          "This also makes every memory allocation addressable from shaders, "
+          "which ray tracing needs."));
+
 #define VK_ERROR_INVALID_SHADER_NV -1000012000
 
 /**

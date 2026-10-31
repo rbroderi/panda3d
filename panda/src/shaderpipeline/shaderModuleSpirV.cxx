@@ -118,6 +118,15 @@ ShaderModuleSpirV(Stage stage, std::vector<uint32_t> words, const CompilerOption
         _used_caps |= C_derivative_control;
         break;
 
+      case spv::CapabilityRayQueryKHR:
+        _used_caps |= C_ray_query;
+        break;
+
+      case spv::CapabilityRayQueryPositionFetchKHR:
+      case spv::CapabilityRayTracingPositionFetchKHR:
+        _used_caps |= C_ray_query_position_fetch;
+        break;
+
       default:
         break;
       }
@@ -181,6 +190,12 @@ ShaderModuleSpirV(Stage stage, std::vector<uint32_t> words, const CompilerOption
     }
 
     if (def.is_variable() && !def.is_builtin()) {
+      // Ignore variables of types Panda doesn't represent (ray query objects,
+      // which are private to the shader anyway).
+      if (def._type == nullptr) {
+        continue;
+      }
+
       // Ignore empty structs/arrays.
       int num_locations = def._type->get_num_interface_locations();
       if (num_locations == 0) {

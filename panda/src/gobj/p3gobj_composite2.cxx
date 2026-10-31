@@ -2,6 +2,8 @@
 #include "perspectiveLens.cxx"
 #include "preparedGraphicsObjects.cxx"
 #include "queryContext.cxx"
+#include "rayTraceMesh.cxx"
+#include "rayTraceScene.cxx"
 #include "samplerContext.cxx"
 #include "samplerState.cxx"
 #include "savedContext.cxx"

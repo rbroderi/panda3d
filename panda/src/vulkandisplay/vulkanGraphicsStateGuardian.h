@@ -22,6 +22,7 @@
 #include "vulkanShaderContext.h"
 #include "circularAllocator.h"
 #include "completionToken.h"
+#include "rayTraceScene.h"
 
 class VulkanBufferContext;
 class VulkanGraphicsPipe;
@@ -96,6 +97,7 @@ public:
                                          VkPipelineStageFlags2 stage_mask,
                                          VkAccessFlags2 access_mask);
   virtual BufferContext *prepare_shader_buffer(ShaderBuffer *data);
+  VkAccelerationStructureKHR use_ray_trace_scene(RayTraceScene *scene);
   virtual void release_shader_buffer(BufferContext *bc);
   virtual bool update_shader_buffer_data(ShaderBuffer *buffer, size_t start,
                                          size_t size, const unsigned char *data);
@@ -189,6 +191,15 @@ private:
   void do_issue_depth_range(const DepthOffsetAttrib *target_depth_offset);
 
 public:
+  VkDeviceAddress get_buffer_address(VkBuffer buffer) const;
+  bool build_ray_trace_meshes(const pvector<RayTraceScene::Instance> &instances);
+  bool build_ray_trace_scene(RayTraceScene *scene, VulkanBufferContext *bc);
+  void collect_ray_trace_meshes(bool all);
+  bool create_acceleration_structure(VkAccelerationStructureTypeKHR type,
+                                     VkDeviceSize size,
+                                     VkAccelerationStructureKHR &as,
+                                     VkBuffer &buffer, VulkanMemoryBlock &block);
+  VkDeviceAddress create_scratch_buffer(VkDeviceSize size);
   bool create_buffer(VkDeviceSize size, VkBuffer &buffer, VulkanMemoryBlock &block,
                      int usage_flags, VulkanMemoryPolicy policy);
   bool create_image(VulkanTextureContext *tc, VkImageType type, VkFormat format,
@@ -414,6 +425,22 @@ private:
   bool _supports_vertex_attrib_zero_divisor = false;
   bool _supports_extended_dynamic_state2 = false;
   bool _supports_extended_dynamic_state2_patch_control_points = false;
+  bool _supports_ray_query = false;
+  bool _supports_ray_position_fetch = false;
+
+  // Bottom-level acceleration structures, built from RayTraceMesh objects
+  // when a scene using them is first used.  The GSG holds a reference to each
+  // mesh; once it holds the only one, the structure is destroyed.
+  struct RayTraceMeshData {
+    UpdateSeq _built_seq;
+    VkAccelerationStructureKHR _handle = VK_NULL_HANDLE;
+    VkBuffer _buffer = VK_NULL_HANDLE;
+    VulkanMemoryBlock _block;
+    VkDeviceAddress _address = 0;
+  };
+  typedef pmap<PT(RayTraceMesh), RayTraceMeshData> RayTraceMeshes;
+  RayTraceMeshes _ray_trace_meshes;
+  VkDeviceSize _scratch_alignment = 256;
 
   // Limits.
   uint32_t _max_inline_uniform_block_size = 0;
@@ -433,6 +460,14 @@ private:
   PFN_vkCmdWriteTimestamp2 _vkCmdWriteTimestamp2;
   PFN_vkSetDebugUtilsObjectNameEXT _vkSetDebugUtilsObjectName;
   PFN_vkUpdateDescriptorSets _vkUpdateDescriptorSets;
+
+  // VK_KHR_acceleration_structure
+  PFN_vkCmdBuildAccelerationStructuresKHR _vkCmdBuildAccelerationStructuresKHR = nullptr;
+  PFN_vkCreateAccelerationStructureKHR _vkCreateAccelerationStructureKHR = nullptr;
+  PFN_vkDestroyAccelerationStructureKHR _vkDestroyAccelerationStructureKHR = nullptr;
+  PFN_vkGetAccelerationStructureBuildSizesKHR _vkGetAccelerationStructureBuildSizesKHR = nullptr;
+  PFN_vkGetAccelerationStructureDeviceAddressKHR _vkGetAccelerationStructureDeviceAddressKHR = nullptr;
+  PFN_vkGetBufferDeviceAddress _vkGetBufferDeviceAddress = nullptr;
 
   static PStatCollector _pipeline_cache_inline_hits_pcollector;
   static PStatCollector _pipeline_cache_main_hits_pcollector;
