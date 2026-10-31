@@ -95,6 +95,12 @@ VulkanGraphicsStateGuardian(GraphicsEngine *engine, VulkanGraphicsPipe *pipe,
  */
 VulkanGraphicsStateGuardian::
 ~VulkanGraphicsStateGuardian() {
+  if (_prepared_objects != nullptr && _device != VK_NULL_HANDLE) {
+    // Never closed (with the Cull/Draw threading model, the last reference
+    // may go before the engine closes it): release what it prepared, and
+    // what its frames were to free, before the device goes.
+    close_gsg();
+  }
   destroy_device();
 }
 
@@ -1034,6 +1040,10 @@ close_gsg() {
       FrameData frame_data;
       frame_data._frame_index = ++_frame_counter;
       _frame_data = &frame_data;
+      // First let go of the meshes' structures, and the meshes: a Geom built
+      // from by reference may be held by its mesh alone, and its buffers
+      // must be released with the rest.
+      collect_ray_trace_meshes(true);
       pgo->release_all_now(this);
       _frame_data = nullptr;
       finish_frame(frame_data);
