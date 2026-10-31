@@ -239,6 +239,7 @@ py_decode_NodePath_from_bam_stream_persist(PyObject *unpickler, vector_uchar dat
  */
 void Extension<NodePath>::
 set_shader_input(CPT_InternalName name, PyObject *value, int priority) {
+  nassertv_always(!_this->is_empty());
   PT(PandaNode) node = _this->node();
   CPT(RenderAttrib) prev_attrib = node->get_attrib(ShaderAttrib::get_class_slot());
   PT(ShaderAttrib) attrib;
@@ -266,6 +267,7 @@ set_shader_inputs(PyObject *args, PyObject *kwargs) {
     Dtool_Raise_TypeError("NodePath.set_shader_inputs takes only keyword arguments");
     return;
   }
+  nassertv_always(!_this->is_empty());
 
   PT(PandaNode) node = _this->node();
   CPT(RenderAttrib) prev_attrib = node->get_attrib(ShaderAttrib::get_class_slot());

@@ -356,3 +356,13 @@ def test_nodepath_set_collide_owner():
     assert collider1.node().owner is owner3
     assert collider2.node().owner is owner3
     assert collider3.node().owner is owner2
+
+
+def test_nodepath_empty_set_shader_input():
+    from panda3d.core import NodePath
+
+    empty = NodePath()
+    with pytest.raises(AssertionError):
+        empty.set_shader_input("foo", (1, 2, 3, 4))
+    with pytest.raises(AssertionError):
+        empty.set_shader_inputs(foo=(1, 2, 3, 4))
