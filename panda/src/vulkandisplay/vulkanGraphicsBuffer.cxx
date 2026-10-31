@@ -234,6 +234,10 @@ destroy_framebuffer() {
 
   vkgsg->flush();
 
+  // Its images may still be in use by work just submitted (at the latest
+  // frame, or the last one before the buffer is closed).
+  vkQueueWaitIdle(vkgsg->_queue);
+
   _framebuffer.destroy(vkgsg);
 
   _is_valid = false;
