@@ -165,6 +165,7 @@ PUBLISHED:
   INLINE bool get_supports_tessellation_shaders() const;
   INLINE bool get_supports_compute_shaders() const;
   INLINE bool get_supports_ray_query() const;
+  INLINE bool get_supports_ray_query_position_fetch() const;
   INLINE bool get_supports_glsl() const;
   INLINE bool get_supports_hlsl() const;
   INLINE bool get_supports_stencil() const;
@@ -222,6 +223,7 @@ PUBLISHED:
   MAKE_PROPERTY(supports_tessellation_shaders, get_supports_tessellation_shaders);
   MAKE_PROPERTY(supports_compute_shaders, get_supports_compute_shaders);
   MAKE_PROPERTY(supports_ray_query, get_supports_ray_query);
+  MAKE_PROPERTY(supports_ray_query_position_fetch, get_supports_ray_query_position_fetch);
   MAKE_PROPERTY(supports_glsl, get_supports_glsl);
   MAKE_PROPERTY(supports_hlsl, get_supports_hlsl);
   MAKE_PROPERTY(supports_stencil, get_supports_stencil);

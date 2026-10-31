@@ -619,6 +619,15 @@ get_supports_ray_query() const {
 }
 
 /**
+ * Returns true if shaders that trace rays can also read the corners of the
+ * triangle a ray hit (GL_EXT_ray_tracing_position_fetch), false otherwise.
+ */
+INLINE bool GraphicsStateGuardian::
+get_supports_ray_query_position_fetch() const {
+  return (_supported_shader_caps & ShaderModule::C_ray_query_position_fetch) != 0;
+}
+
+/**
  * Returns true if this particular GSG supports GLSL shaders.
  * @deprecated This is now irrelevant, use get_supports_basic_shaders instead.
  */
