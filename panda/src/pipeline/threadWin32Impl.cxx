@@ -66,9 +66,10 @@ init_current_thread() {
     thread = Thread::get_main_thread();
     _current_thread = thread;
   }
-  // If this assertion triggers, you are making Panda calls from a thread
-  // that has not first been registered using Thread::bind_thread().
-  nassertr(thread != nullptr, nullptr);
+  // A thread not registered with Thread::bind_thread() (a Python thread, say)
+  // gets nullptr here, and Thread::get_current_thread() then hands it the
+  // shared external thread, as 1.10 did.  Upstream asserts here; that only
+  // printed "thread != nullptr" for each such call, so this fork stays quiet.
   return thread;
 }
 
