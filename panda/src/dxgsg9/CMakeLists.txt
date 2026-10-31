@@ -2,6 +2,14 @@ if(NOT HAVE_DX9)
   return()
 endif()
 
+if(NOT HAVE_SPIRV-CROSS)
+  # The shader code transpiles SPIR-V to HLSL, so this isn't optional.
+  message(SEND_ERROR
+    "DirectX 9 support needs SPIRV-Cross.  Enable HAVE_SPIRV-CROSS, or "
+    "disable HAVE_DX9 to continue.")
+  return()
+endif()
+
 set(P3DXGSG9_HEADERS
   config_dxgsg9.h
   dxGeomMunger9.h dxGeomMunger9.I
