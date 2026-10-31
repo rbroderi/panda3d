@@ -41,6 +41,7 @@ release_all() {
   release_all_shaders();
   release_all_vertex_buffers();
   release_all_index_buffers();
+  release_all_shader_buffers();
 
   _texture_residency.set_levels();
   _vbuffer_residency.set_levels();
