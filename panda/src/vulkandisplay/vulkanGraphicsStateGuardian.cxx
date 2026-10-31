@@ -309,6 +309,12 @@ reset() {
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
     &as_features,
   };
+  // VK_KHR_ray_tracing_position_fetch: a hit's triangle's corners, for its
+  // normal (GL_EXT_ray_tracing_position_fetch).
+  VkPhysicalDeviceRayTracingPositionFetchFeaturesKHR pf_features = {
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_POSITION_FETCH_FEATURES_KHR,
+    &rq_features,
+  };
   if (pipe->_gpu_supports_ray_query && vulkan_ray_query) {
     as_features.accelerationStructure = VK_TRUE;
     rq_features.rayQuery = VK_TRUE;
@@ -319,8 +325,18 @@ reset() {
     extensions.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
     extensions.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
     _supports_ray_query = true;
+
+    if (pipe->_gpu_supports_ray_position_fetch) {
+      pf_features.rayTracingPositionFetch = VK_TRUE;
+      enabled_features.pNext = &pf_features;
+      extensions.push_back(VK_KHR_RAY_TRACING_POSITION_FETCH_EXTENSION_NAME);
+      _supports_ray_position_fetch = true;
+    } else {
+      _supports_ray_position_fetch = false;
+    }
   } else {
     _supports_ray_query = false;
+    _supports_ray_position_fetch = false;
   }
 
   // VK_KHR_portability_subset
@@ -432,7 +448,8 @@ reset() {
     _scratch_alignment = std::max((VkDeviceSize)as_props.minAccelerationStructureScratchOffsetAlignment, (VkDeviceSize)1);
 
     vulkandisplay_cat.info()
-      << "Ray queries are enabled.\n";
+      << "Ray queries are enabled"
+      << (_supports_ray_position_fetch ? ", with position fetch.\n" : ".\n");
   }
 
   // Create a command pool to allocate command buffers from.
@@ -3143,6 +3160,10 @@ build_ray_trace_meshes(const pvector<RayTraceScene::Instance> &instances) {
     };
     info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
     info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+    if (_supports_ray_position_fetch) {
+      // Lets shaders fetch a hit triangle's corners.
+      info.flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_DATA_ACCESS_KHR;
+    }
     info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
     info.geometryCount = (uint32_t)(geoms.size() - first_geom);
     info.pGeometries = &geoms[first_geom];

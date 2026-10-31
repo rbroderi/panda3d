@@ -434,6 +434,7 @@ private:
   bool _supports_extended_dynamic_state2 = false;
   bool _supports_extended_dynamic_state2_patch_control_points = false;
   bool _supports_ray_query = false;
+  bool _supports_ray_position_fetch = false;
 
   // Bottom-level acceleration structures, built from RayTraceMesh objects
   // when a scene using them is first used.  The GSG holds a reference to each

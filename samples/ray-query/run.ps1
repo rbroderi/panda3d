@@ -1,7 +1,10 @@
-﻿# Runs shadows.py against this checkout's build: run.ps1 [-Validate] [args...]
-# Output goes to the console; with -Validate the Khronos layer (with its
-# synchronization checks) is on and its messages are counted at the end.
-param([switch]$Validate, [Parameter(ValueFromRemainingArguments)]$Rest)
+﻿# Runs a sample here against this checkout's build:
+#     run.ps1 [-Validate] [-Script compute.py] [args...]
+# (shadows.py by default).  Output goes to the console; with -Validate the
+# Khronos layer (with its synchronization checks) is on and its messages are
+# counted at the end.
+[CmdletBinding(PositionalBinding = $false)]
+param([switch]$Validate, [string]$Script = "shadows.py", [Parameter(ValueFromRemainingArguments)]$Rest)
 $root = Resolve-Path "$PSScriptRoot\..\.."
 $env:PYTHONPATH = "$root\built"
 $env:PATH = "$root\built\bin;$env:PATH"
@@ -13,7 +16,7 @@ if ($Validate) {
 }
 $code = "import faulthandler, runpy, sys; faulthandler.enable(); faulthandler.dump_traceback_later(400, exit=True); " +
         "from panda3d.core import loadPrcFileData; loadPrcFileData('', sys.argv[1].replace('|', chr(10))); " +
-        "sys.argv = ['shadows.py'] + sys.argv[2:]; runpy.run_path(r'$PSScriptRoot\shadows.py', run_name='__main__')"
+        "sys.argv = ['$Script'] + sys.argv[2:]; runpy.run_path(r'$PSScriptRoot\$Script', run_name='__main__')"
 $log = "$PSScriptRoot\run.log"
 & "$root\venv\Scripts\python.exe" -c $code ($prc -replace "`n", "|") @Rest 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $log | Out-Null
 $status = $LASTEXITCODE

@@ -391,8 +391,15 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
       &as_features,
     };
+    VkPhysicalDeviceRayTracingPositionFetchFeaturesKHR pf_features = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_POSITION_FETCH_FEATURES_KHR,
+      &rq_features,
+    };
     if (has_ray_query_exts) {
       features2.pNext = &rq_features;
+      if (has_device_extension(VK_KHR_RAY_TRACING_POSITION_FETCH_EXTENSION_NAME)) {
+        features2.pNext = &pf_features;
+      }
     }
 
     pVkGetPhysicalDeviceFeatures2(_gpu, &features2);
@@ -401,6 +408,8 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
                            && rq_features.rayQuery
                            && as_features.accelerationStructure
                            && bda_features.bufferDeviceAddress;
+    _gpu_supports_ray_position_fetch = _gpu_supports_ray_query
+                                    && pf_features.rayTracingPositionFetch;
     _gpu_supports_dynamic_rendering = dr_features.dynamicRendering;
     _gpu_supports_custom_border_colors = cbc_features.customBorderColors
                                       && cbc_features.customBorderColorWithoutFormat;
@@ -429,6 +438,7 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
     _gpu_supports_extended_dynamic_state2_patch_control_points = false;
     _gpu_supports_inline_uniform_block = false;
     _gpu_supports_ray_query = false;
+    _gpu_supports_ray_position_fetch = false;
   }
 
   // Default the maximum allocation size to the largest of the heaps.
