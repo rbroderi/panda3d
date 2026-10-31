@@ -436,6 +436,8 @@ reset() {
     _vkGetAccelerationStructureBuildSizesKHR = (PFN_vkGetAccelerationStructureBuildSizesKHR)vkGetDeviceProcAddr(_device, "vkGetAccelerationStructureBuildSizesKHR");
     _vkGetAccelerationStructureDeviceAddressKHR = (PFN_vkGetAccelerationStructureDeviceAddressKHR)vkGetDeviceProcAddr(_device, "vkGetAccelerationStructureDeviceAddressKHR");
     _vkGetBufferDeviceAddress = (PFN_vkGetBufferDeviceAddress)vkGetDeviceProcAddr(_device, "vkGetBufferDeviceAddress");
+    _vkCmdCopyAccelerationStructureKHR = (PFN_vkCmdCopyAccelerationStructureKHR)vkGetDeviceProcAddr(_device, "vkCmdCopyAccelerationStructureKHR");
+    _vkCmdWriteAccelerationStructuresPropertiesKHR = (PFN_vkCmdWriteAccelerationStructuresPropertiesKHR)vkGetDeviceProcAddr(_device, "vkCmdWriteAccelerationStructuresPropertiesKHR");
 
     VkPhysicalDeviceAccelerationStructurePropertiesKHR as_props = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR,
@@ -976,6 +978,9 @@ destroy_device() {
     if (item.second._handle != VK_NULL_HANDLE) {
       _vkDestroyAccelerationStructureKHR(_device, item.second._handle, nullptr);
       vkDestroyBuffer(_device, item.second._buffer, nullptr);
+    }
+    if (item.second._query_pool != VK_NULL_HANDLE) {
+      vkDestroyQueryPool(_device, item.second._query_pool, nullptr);
     }
   }
   _ray_trace_meshes.clear();
@@ -2467,11 +2472,16 @@ prepare_vertex_buffer(GeomVertexArrayData *array_data) {
   VulkanMemoryPolicy policy = (array_data->get_usage_hint() == GeomEnums::UH_stream)
                             ? MP_stream_retained : MP_retained;
 
+  // With ray queries on, a mesh's structure may be built straight from it.
+  int usage_flags = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  if (_supports_ray_query) {
+    usage_flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+                   VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+  }
+
   VkBuffer buffer;
   VulkanMemoryBlock block;
-  if (!create_buffer(data_size, buffer, block,
-                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                     policy)) {
+  if (!create_buffer(data_size, buffer, block, usage_flags, policy)) {
     vulkandisplay_cat.error()
       << "Failed to create vertex buffer.\n";
     return nullptr;
@@ -2620,11 +2630,16 @@ prepare_index_buffer(GeomPrimitive *primitive) {
   VulkanMemoryPolicy policy = (primitive->get_usage_hint() == GeomEnums::UH_stream)
                             ? MP_stream_retained : MP_retained;
 
+  // With ray queries on, a mesh's structure may be built straight from it.
+  int usage_flags = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  if (_supports_ray_query) {
+    usage_flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+                   VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+  }
+
   VkBuffer buffer;
   VulkanMemoryBlock block;
-  if (!create_buffer(data_size, buffer, block,
-                     VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                     policy)) {
+  if (!create_buffer(data_size, buffer, block, usage_flags, policy)) {
     vulkandisplay_cat.error()
       << "Failed to create index buffer.\n";
     return nullptr;
@@ -2927,10 +2942,11 @@ release_shader_buffer(BufferContext *context) {
 
 /**
  * Returns the acceleration structure of the given scene, for a shader to
- * trace rays against, building it first if the scene changed since it was
- * last built.  Builds are recorded in the transfer command buffer, which is
- * submitted ahead of the render command buffer, and each build makes a new
- * structure, so that frames still in flight keep reading the old one.
+ * trace rays against, building it first if the scene or one of its meshes
+ * changed since it was last built.  Builds are recorded in the transfer
+ * command buffer, which is submitted ahead of the render command buffer, and
+ * each build makes a new structure, so that frames still in flight keep
+ * reading the old one.
  */
 VkAccelerationStructureKHR VulkanGraphicsStateGuardian::
 use_ray_trace_scene(RayTraceScene *scene) {
@@ -2941,8 +2957,32 @@ use_ray_trace_scene(RayTraceScene *scene) {
   VulkanBufferContext *bc;
   DCAST_INTO_R(bc, scene->prepare_now(_prepared_objects, this), VK_NULL_HANDLE);
 
-  if (bc->_acceleration_structure == VK_NULL_HANDLE ||
-      bc->_built_seq != scene->get_modified()) {
+  // Compacting meshes changes their addresses: do it before any scene is
+  // built this frame, so that every scene using one is rebuilt after.
+  compact_ray_trace_meshes();
+
+  bool rebuild = bc->_acceleration_structure == VK_NULL_HANDLE ||
+                 bc->_built_seq != scene->get_modified() ||
+                 bc->_mesh_generation != _ray_trace_mesh_generation;
+  if (!rebuild && bc->_seen_any_mesh_modified != RayTraceMesh::get_any_modified()) {
+    // Some mesh somewhere changed: is it one of ours?
+    pvector<RayTraceScene::Instance> instances;
+    UpdateSeq layout;
+    scene->get_instances(instances, layout);
+    for (const RayTraceScene::Instance &inst : instances) {
+      RayTraceMeshes::const_iterator it = _ray_trace_meshes.find(inst._mesh);
+      if (it == _ray_trace_meshes.end() ||
+          it->second._built_seq != inst._mesh->get_modified()) {
+        rebuild = true;
+        break;
+      }
+    }
+    if (!rebuild) {
+      bc->_seen_any_mesh_modified = RayTraceMesh::get_any_modified();
+    }
+  }
+
+  if (rebuild) {
     build_ray_trace_scene(scene, bc);
   }
   return bc->_acceleration_structure;
@@ -2999,6 +3039,19 @@ create_acceleration_structure(VkAccelerationStructureTypeKHR type,
 }
 
 /**
+ * Returns the device address of an acceleration structure.
+ */
+VkDeviceAddress VulkanGraphicsStateGuardian::
+get_acceleration_structure_address(VkAccelerationStructureKHR as) const {
+  VkAccelerationStructureDeviceAddressInfoKHR address_info = {
+    VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
+    nullptr,
+    as,
+  };
+  return _vkGetAccelerationStructureDeviceAddressKHR(_device, &address_info);
+}
+
+/**
  * Creates a scratch buffer for building an acceleration structure, which is
  * freed when this frame is done, and returns its suitably aligned device
  * address, or 0 on failure.
@@ -3023,17 +3076,19 @@ create_scratch_buffer(VkDeviceSize size) {
 
 /**
  * Records a global memory barrier in the transfer command buffer, ordering
- * acceleration structure builds before the given access.
+ * the given writes before the given access.
  */
 static void
-acceleration_structure_barrier(VkCommandBuffer cmd,
-                               VkPipelineStageFlags2 dst_stage_mask,
-                               VkAccessFlags2 dst_access_mask) {
+memory_barrier(VkCommandBuffer cmd,
+               VkPipelineStageFlags2 src_stage_mask,
+               VkAccessFlags2 src_access_mask,
+               VkPipelineStageFlags2 dst_stage_mask,
+               VkAccessFlags2 dst_access_mask) {
   VkMemoryBarrier2 barrier = {
     VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
     nullptr,
-    VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
-    VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+    src_stage_mask,
+    src_access_mask,
     dst_stage_mask,
     dst_access_mask,
   };
@@ -3041,6 +3096,38 @@ acceleration_structure_barrier(VkCommandBuffer cmd,
   dep_info.memoryBarrierCount = 1;
   dep_info.pMemoryBarriers = &barrier;
   vkCmdPipelineBarrier2(cmd, &dep_info);
+}
+
+/**
+ * Records a barrier ordering acceleration structure builds (and copies)
+ * before the given access.
+ */
+static void
+acceleration_structure_barrier(VkCommandBuffer cmd,
+                               VkPipelineStageFlags2 dst_stage_mask,
+                               VkAccessFlags2 dst_access_mask) {
+  memory_barrier(cmd,
+    VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+    VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+    dst_stage_mask, dst_access_mask);
+}
+
+/**
+ * Queues a mesh's structure, buffer and memory for destruction once this
+ * frame is done, and forgets them.
+ */
+void VulkanGraphicsStateGuardian::
+release_ray_trace_mesh_structure(RayTraceMeshData &data) {
+  if (data._handle != VK_NULL_HANDLE) {
+    _frame_data->_pending_destroy_acceleration_structures.push_back(data._handle);
+    _frame_data->_pending_destroy_buffers.push_back(data._buffer);
+    _frame_data->_pending_free.push_back(std::move(data._block));
+    data._handle = VK_NULL_HANDLE;
+    data._buffer = VK_NULL_HANDLE;
+    data._address = 0;
+    data._size = 0;
+    ++_ray_trace_mesh_generation;
+  }
 }
 
 /**
@@ -3052,11 +3139,9 @@ collect_ray_trace_meshes(bool all) {
   RayTraceMeshes::iterator it = _ray_trace_meshes.begin();
   while (it != _ray_trace_meshes.end()) {
     if (all || it->first->get_ref_count() == 1) {
-      RayTraceMeshData &data = it->second;
-      if (data._handle != VK_NULL_HANDLE) {
-        _frame_data->_pending_destroy_acceleration_structures.push_back(data._handle);
-        _frame_data->_pending_destroy_buffers.push_back(data._buffer);
-        _frame_data->_pending_free.push_back(std::move(data._block));
+      release_ray_trace_mesh_structure(it->second);
+      if (it->second._query_pool != VK_NULL_HANDLE) {
+        _frame_data->_pending_destroy_query_pools.push_back(it->second._query_pool);
       }
       it = _ray_trace_meshes.erase(it);
     } else {
@@ -3066,13 +3151,93 @@ collect_ray_trace_meshes(bool all) {
 }
 
 /**
- * Builds the bottom-level structures of the meshes of the given instances
- * that have not been built, or have changed since.  All are built with one
- * command, followed by a barrier for the top-level build that reads them.
+ * Replaces built static meshes with compacted copies, once the GPU has said
+ * how small they can be (a query written after each build).  At most once a
+ * frame, before any scene is built: a compacted mesh has a new address, so
+ * every scene is rebuilt after.
+ */
+void VulkanGraphicsStateGuardian::
+compact_ray_trace_meshes() {
+  if (_ray_trace_compaction_frame == _frame_counter) {
+    return;
+  }
+  _ray_trace_compaction_frame = _frame_counter;
+
+  bool copied = false;
+  for (auto &item : _ray_trace_meshes) {
+    RayTraceMeshData &data = item.second;
+    if (!data._compaction_pending || data._handle == VK_NULL_HANDLE) {
+      continue;
+    }
+    VkDeviceSize compact_size = 0;
+    VkResult err = vkGetQueryPoolResults(_device, data._query_pool, 0, 1,
+                                         sizeof(compact_size), &compact_size,
+                                         sizeof(compact_size), VK_QUERY_RESULT_64_BIT);
+    if (err == VK_NOT_READY) {
+      continue;
+    }
+    data._compaction_pending = false;
+    if (err != VK_SUCCESS || compact_size == 0 || compact_size >= data._size) {
+      continue;
+    }
+
+    VkAccelerationStructureKHR handle;
+    VkBuffer buffer;
+    VulkanMemoryBlock block;
+    if (!create_acceleration_structure(VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+                                       compact_size, handle, buffer, block)) {
+      continue;
+    }
+    VkCopyAccelerationStructureInfoKHR copy_info = {
+      VK_STRUCTURE_TYPE_COPY_ACCELERATION_STRUCTURE_INFO_KHR,
+    };
+    copy_info.src = data._handle;
+    copy_info.dst = handle;
+    copy_info.mode = VK_COPY_ACCELERATION_STRUCTURE_MODE_COMPACT_KHR;
+    _vkCmdCopyAccelerationStructureKHR(_transfer_cmd, &copy_info);
+    copied = true;
+
+    if (vulkandisplay_cat.is_debug()) {
+      vulkandisplay_cat.debug()
+        << "Compacted " << item.first->get_name() << " from " << data._size
+        << " to " << compact_size << " bytes\n";
+    }
+    UpdateSeq built_seq = data._built_seq;
+    UpdateSeq layout_seq = data._layout_seq;
+    release_ray_trace_mesh_structure(data);
+    data._handle = handle;
+    data._buffer = buffer;
+    data._block = std::move(block);
+    data._size = compact_size;
+    data._address = get_acceleration_structure_address(handle);
+    data._built_seq = built_seq;
+    data._layout_seq = layout_seq;
+  }
+
+  if (copied) {
+    // The copies (in the build stage, without maintenance1) before any
+    // later build or trace reads them.
+    acceleration_structure_barrier(_transfer_cmd,
+      VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+      VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR);
+  }
+}
+
+/**
+ * Builds (or refits) the bottom-level structures of the meshes of the given
+ * instances that have not been built, or have changed since.  All are built
+ * with one command, followed by a barrier for the top-level build that reads
+ * them, and the static ones' compacted sizes asked for.
  */
 bool VulkanGraphicsStateGuardian::
 build_ray_trace_meshes(const pvector<RayTraceScene::Instance> &instances) {
-  pvector<RayTraceMesh *> meshes;
+  Thread *current_thread = Thread::get_current_thread();
+
+  struct Build {
+    RayTraceMesh *_mesh;
+    bool _refit;
+  };
+  pvector<Build> builds;
   size_t num_geoms = 0;
   for (const RayTraceScene::Instance &inst : instances) {
     RayTraceMesh *mesh = inst._mesh;
@@ -3080,26 +3245,22 @@ build_ray_trace_meshes(const pvector<RayTraceScene::Instance> &instances) {
     if (data._built_seq == mesh->get_modified()) {
       continue;
     }
-
-    // Changed since it was built (or never built).  Let go of the old one.
-    if (data._handle != VK_NULL_HANDLE) {
-      _frame_data->_pending_destroy_acceleration_structures.push_back(data._handle);
-      _frame_data->_pending_destroy_buffers.push_back(data._buffer);
-      _frame_data->_pending_free.push_back(std::move(data._block));
-      data._handle = VK_NULL_HANDLE;
-      data._buffer = VK_NULL_HANDLE;
-      data._address = 0;
-    }
+    bool refit = data._handle != VK_NULL_HANDLE && data._can_update &&
+                 data._layout_seq == mesh->get_layout_modified();
     data._built_seq = mesh->get_modified();
-
-    // An instance of an empty mesh has address 0, which makes it inactive.
-    if (mesh->get_num_triangles() > 0) {
-      meshes.push_back(mesh);
-      num_geoms += mesh->get_ranges().size();
+    data._layout_seq = mesh->get_layout_modified();
+    if (mesh->get_num_triangles() == 0) {
+      // An instance of an empty mesh has address 0, which makes it inactive.
+      release_ray_trace_mesh_structure(data);
+      continue;
+    }
+    builds.push_back({mesh, refit});
+    for (const RayTraceMesh::GeomRange &range : mesh->get_ranges()) {
+      num_geoms += range._referenced ? range._geom->get_num_primitives() : 1;
     }
   }
 
-  if (meshes.empty()) {
+  if (builds.empty()) {
     return true;
   }
 
@@ -3112,16 +3273,61 @@ build_ray_trace_meshes(const pvector<RayTraceScene::Instance> &instances) {
   counts.reserve(num_geoms);
   pvector<VkAccelerationStructureBuildGeometryInfoKHR> infos;
   pvector<const VkAccelerationStructureBuildRangeInfoKHR *> range_ptrs;
+  pvector<VkAccelerationStructureKHR> to_query;
+  pvector<VkQueryPool> query_pools;
+  bool uploaded = false;
 
-  for (RayTraceMesh *mesh : meshes) {
+  // Referenced Geoms' buffers are prepared and uploaded first: that may
+  // allocate memory, which must not happen while an input buffer is mapped
+  // (the mapping holds the allocator's lock).
+  for (const Build &build : builds) {
+    for (const RayTraceMesh::GeomRange &range : build._mesh->get_ranges()) {
+      if (!range._referenced) {
+        continue;
+      }
+      CPT(GeomVertexData) vdata = range._geom->get_vertex_data(current_thread);
+      int array_index = vdata->get_format()->get_array_with(InternalName::get_vertex());
+      nassertr(array_index >= 0, false);
+      GeomVertexArrayData *array = (GeomVertexArrayData *)vdata->get_array(array_index).p();
+      VulkanVertexBufferContext *vbc;
+      DCAST_INTO_R(vbc, array->prepare_now(_prepared_objects, this), false);
+      if (!update_vertex_buffer(vbc, array->get_handle(current_thread), false)) {
+        return false;
+      }
+      for (size_t pi = 0; pi < range._geom->get_num_primitives(); ++pi) {
+        GeomPrimitive *prim = (GeomPrimitive *)range._geom->get_primitive(pi).p();
+        // An empty one adds no geometry below, and would have an empty
+        // index buffer, which can't be made.
+        if (prim->is_indexed() && prim->get_num_primitives() > 0) {
+          VulkanIndexBufferContext *ibc;
+          DCAST_INTO_R(ibc, prim->prepare_now(_prepared_objects, this), false);
+          GeomPrimitivePipelineReader reader(prim, current_thread);
+          if (!update_index_buffer(ibc, &reader, false)) {
+            return false;
+          }
+        }
+      }
+      uploaded = true;
+    }
+  }
+
+  for (const Build &build : builds) {
+    RayTraceMesh *mesh = build._mesh;
     const pvector<LVecBase3f> &vertices = mesh->get_vertices();
     const pvector<uint32_t> &indices = mesh->get_indices();
+    const pvector<RayTraceMesh::GeomRange> &mesh_ranges = mesh->get_ranges();
 
-    // Copy the triangles into a buffer the build reads, freed after this
-    // frame; the structure keeps its own copy.
+    // Copied and posed triangles, and referenced ones' transforms, go into a
+    // buffer the build reads, freed after this frame; the structure keeps
+    // its own copy.
+    size_t num_transforms = 0;
+    for (const RayTraceMesh::GeomRange &range : mesh_ranges) {
+      num_transforms += (range._referenced && !range._identity) ? 1 : 0;
+    }
     VkDeviceSize vertex_size = vertices.size() * 3 * sizeof(float);
     VkDeviceSize index_offset = (vertex_size + 15) & ~(VkDeviceSize)15;
-    VkDeviceSize input_size = index_offset + indices.size() * sizeof(uint32_t);
+    VkDeviceSize transform_offset = (index_offset + indices.size() * sizeof(uint32_t) + 15) & ~(VkDeviceSize)15;
+    VkDeviceSize input_size = transform_offset + num_transforms * sizeof(VkTransformMatrixKHR) + 16;
 
     VkBuffer input;
     VulkanMemoryBlock input_block;
@@ -3133,24 +3339,26 @@ build_ray_trace_meshes(const pvector<RayTraceScene::Instance> &instances) {
         << "Failed to create input buffer for ray trace mesh.\n";
       return false;
     }
+    VkDeviceAddress buffer_address = get_buffer_address(input);
+    VkDeviceAddress base_address = (buffer_address + 15) & ~(VkDeviceAddress)15;
+    VulkanMemoryMapping mapping = input_block.map();
+    unsigned char *base = (unsigned char *)(void *)mapping + (base_address - buffer_address);
     {
-      VulkanMemoryMapping mapping = input_block.map();
-      float *vertex_ptr = (float *)(void *)mapping;
+      float *vertex_ptr = (float *)base;
       for (const LVecBase3f &vertex : vertices) {
         *vertex_ptr++ = vertex[0];
         *vertex_ptr++ = vertex[1];
         *vertex_ptr++ = vertex[2];
       }
-      memcpy((unsigned char *)(void *)mapping + index_offset,
-             indices.data(), indices.size() * sizeof(uint32_t));
+      if (!indices.empty()) {
+        memcpy(base + index_offset, indices.data(), indices.size() * sizeof(uint32_t));
+      }
     }
-    VkDeviceAddress vertex_address = get_buffer_address(input);
-    VkDeviceAddress index_address = vertex_address + index_offset;
-    _frame_data->_pending_destroy_buffers.push_back(input);
-    _frame_data->_pending_free.push_back(std::move(input_block));
+    VkTransformMatrixKHR *transform_ptr = (VkTransformMatrixKHR *)(base + transform_offset);
+    VkDeviceAddress transform_address = base_address + transform_offset;
 
     size_t first_geom = geoms.size();
-    for (const RayTraceMesh::GeomRange &range : mesh->get_ranges()) {
+    for (const RayTraceMesh::GeomRange &range : mesh_ranges) {
       VkAccelerationStructureGeometryKHR geom = {
         VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
       };
@@ -3160,64 +3368,186 @@ build_ray_trace_meshes(const pvector<RayTraceScene::Instance> &instances) {
       tris.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
       tris.pNext = nullptr;
       tris.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
-      tris.vertexData.deviceAddress = vertex_address + range._first_vertex * 3 * sizeof(float);
-      tris.vertexStride = 3 * sizeof(float);
-      tris.maxVertex = std::max(range._num_vertices, 1u) - 1;
-      tris.indexType = VK_INDEX_TYPE_UINT32;
-      tris.indexData.deviceAddress = index_address + range._first_index * sizeof(uint32_t);
       tris.transformData.deviceAddress = 0;
-      geoms.push_back(geom);
 
-      VkAccelerationStructureBuildRangeInfoKHR range_info = {};
-      range_info.primitiveCount = range._num_triangles;
-      ranges.push_back(range_info);
-      counts.push_back(range._num_triangles);
+      if (!range._referenced) {
+        tris.vertexData.deviceAddress = base_address + range._first_vertex * 3 * sizeof(float);
+        tris.vertexStride = 3 * sizeof(float);
+        tris.maxVertex = std::max(range._num_vertices, 1u) - 1;
+        tris.indexType = VK_INDEX_TYPE_UINT32;
+        tris.indexData.deviceAddress = base_address + index_offset + range._first_index * sizeof(uint32_t);
+        geoms.push_back(geom);
+
+        VkAccelerationStructureBuildRangeInfoKHR range_info = {};
+        range_info.primitiveCount = range._num_triangles;
+        ranges.push_back(range_info);
+        counts.push_back(range._num_triangles);
+        continue;
+      }
+
+      // Referenced: straight from the Geom's own buffers, prepared and
+      // uploaded above (so looking them up allocates nothing).
+      CPT(GeomVertexData) vdata = range._geom->get_vertex_data(current_thread);
+      const GeomVertexFormat *format = vdata->get_format();
+      int array_index = format->get_array_with(InternalName::get_vertex());
+      const GeomVertexColumn *column = format->get_column(InternalName::get_vertex());
+      nassertr(array_index >= 0 && column != nullptr, false);
+      GeomVertexArrayData *array = (GeomVertexArrayData *)vdata->get_array(array_index).p();
+      VulkanVertexBufferContext *vbc;
+      DCAST_INTO_R(vbc, array->prepare_now(_prepared_objects, this), false);
+      VkDeviceAddress vertex_address = get_buffer_address(vbc->_buffer) + column->get_start();
+      uint32_t stride = (uint32_t)format->get_array(array_index)->get_stride();
+
+      if (!range._identity) {
+        const LMatrix4f &mat = range._transform;
+        for (int r = 0; r < 3; ++r) {
+          for (int c = 0; c < 3; ++c) {
+            transform_ptr->matrix[r][c] = mat(c, r);
+          }
+          transform_ptr->matrix[r][3] = mat(3, r);
+        }
+        tris.transformData.deviceAddress = transform_address;
+        ++transform_ptr;
+        transform_address += sizeof(VkTransformMatrixKHR);
+      }
+
+      for (size_t pi = 0; pi < range._geom->get_num_primitives(); ++pi) {
+        GeomPrimitive *prim = (GeomPrimitive *)range._geom->get_primitive(pi).p();
+        uint32_t num_tris = (uint32_t)prim->get_num_primitives();
+        if (num_tris == 0) {
+          continue;
+        }
+        tris.vertexStride = stride;
+        if (prim->is_indexed()) {
+          VulkanIndexBufferContext *ibc;
+          DCAST_INTO_R(ibc, prim->prepare_now(_prepared_objects, this), false);
+          tris.vertexData.deviceAddress = vertex_address;
+          tris.maxVertex = std::max((uint32_t)vdata->get_num_rows(), 1u) - 1;
+          tris.indexType = ibc->_index_type;
+          tris.indexData.deviceAddress = get_buffer_address(ibc->_buffer);
+        } else {
+          uint32_t first = (uint32_t)prim->get_first_vertex();
+          tris.vertexData.deviceAddress = vertex_address + (VkDeviceAddress)first * stride;
+          tris.maxVertex = std::max((uint32_t)prim->get_num_vertices(), 1u) - 1;
+          tris.indexType = VK_INDEX_TYPE_NONE_KHR;
+          tris.indexData.deviceAddress = 0;
+        }
+        geoms.push_back(geom);
+
+        VkAccelerationStructureBuildRangeInfoKHR range_info = {};
+        range_info.primitiveCount = num_tris;
+        ranges.push_back(range_info);
+        counts.push_back(num_tris);
+      }
     }
+    mapping.unmap();
+    _frame_data->_pending_destroy_buffers.push_back(input);
+    _frame_data->_pending_free.push_back(std::move(input_block));
+
+    RayTraceMeshData &data = _ray_trace_meshes[mesh];
+    bool animated = mesh->is_animated();
 
     VkAccelerationStructureBuildGeometryInfoKHR info = {
       VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
     };
     info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-    info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+    if (animated) {
+      // Refitted as it moves: fast to build and update.
+      info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR |
+                   VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+    } else {
+      info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR |
+                   VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
+    }
     if (_supports_ray_position_fetch) {
       // Lets shaders fetch a hit triangle's corners.
       info.flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_DATA_ACCESS_KHR;
     }
-    info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
     info.geometryCount = (uint32_t)(geoms.size() - first_geom);
     info.pGeometries = &geoms[first_geom];
 
-    VkAccelerationStructureBuildSizesInfoKHR sizes = {
-      VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
-    };
-    _vkGetAccelerationStructureBuildSizesKHR(_device,
-      VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &info,
-      &counts[first_geom], &sizes);
+    VkDeviceSize size, scratch_size;
+    if (build._refit) {
+      info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR;
+      info.srcAccelerationStructure = data._handle;
+      size = data._size;
+      scratch_size = data._update_scratch_size;
+    } else {
+      info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+      VkAccelerationStructureBuildSizesInfoKHR sizes = {
+        VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
+      };
+      _vkGetAccelerationStructureBuildSizesKHR(_device,
+        VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &info,
+        &counts[first_geom], &sizes);
+      size = sizes.accelerationStructureSize;
+      scratch_size = sizes.buildScratchSize;
+      data._update_scratch_size = sizes.updateScratchSize;
+    }
 
-    RayTraceMeshData &data = _ray_trace_meshes[mesh];
+    // Each build (and refit) makes a new structure: frames in flight may
+    // still be reading the old one.
+    VkAccelerationStructureKHR handle;
+    VkBuffer buffer;
+    VulkanMemoryBlock block;
     if (!create_acceleration_structure(VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
-                                       sizes.accelerationStructureSize,
-                                       data._handle, data._buffer, data._block)) {
-      data._handle = VK_NULL_HANDLE;
+                                       size, handle, buffer, block)) {
       return false;
     }
-    set_object_name(VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR, (void *)data._handle,
+    set_object_name(VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR, (void *)handle,
                     mesh->get_name().empty() ? "<RayTraceMesh>" : mesh->get_name().c_str());
 
-    VkAccelerationStructureDeviceAddressInfoKHR address_info = {
-      VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
-      nullptr,
-      data._handle,
-    };
-    data._address = _vkGetAccelerationStructureDeviceAddressKHR(_device, &address_info);
-
-    info.dstAccelerationStructure = data._handle;
-    info.scratchData.deviceAddress = create_scratch_buffer(sizes.buildScratchSize);
+    info.dstAccelerationStructure = handle;
+    info.scratchData.deviceAddress = create_scratch_buffer(scratch_size);
     if (info.scratchData.deviceAddress == 0) {
+      _vkDestroyAccelerationStructureKHR(_device, handle, nullptr);
+      vkDestroyBuffer(_device, buffer, nullptr);
       return false;
     }
     infos.push_back(info);
     range_ptrs.push_back(&ranges[first_geom]);
+
+    // The refit reads the old one: keep it till this frame is done.
+    UpdateSeq built_seq = data._built_seq;
+    UpdateSeq layout_seq = data._layout_seq;
+    release_ray_trace_mesh_structure(data);
+    data._handle = handle;
+    data._buffer = buffer;
+    data._block = std::move(block);
+    data._size = size;
+    data._address = get_acceleration_structure_address(handle);
+    data._can_update = animated;
+    data._built_seq = built_seq;
+    data._layout_seq = layout_seq;
+
+    // Ask how small a static one can be made, to compact it later.
+    data._compaction_pending = false;
+    if (!animated) {
+      if (data._query_pool == VK_NULL_HANDLE) {
+        VkQueryPoolCreateInfo pool_info = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+        pool_info.queryType = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR;
+        pool_info.queryCount = 1;
+        if (vkCreateQueryPool(_device, &pool_info, nullptr, &data._query_pool) != VK_SUCCESS) {
+          data._query_pool = VK_NULL_HANDLE;
+        }
+      }
+      if (data._query_pool != VK_NULL_HANDLE) {
+        vkCmdResetQueryPool(_transfer_cmd, data._query_pool, 0, 1);
+        to_query.push_back(handle);
+        query_pools.push_back(data._query_pool);
+        data._compaction_pending = true;
+      }
+    }
+  }
+
+  if (uploaded) {
+    // Referenced Geoms' buffers were just written (copied or by the host).
+    _transfer_cmd.flush_barriers();
+    memory_barrier(_transfer_cmd,
+      VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_HOST_BIT,
+      VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_HOST_WRITE_BIT,
+      VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+      VK_ACCESS_2_SHADER_READ_BIT);
   }
 
   _vkCmdBuildAccelerationStructuresKHR(_transfer_cmd, (uint32_t)infos.size(),
@@ -3226,6 +3556,11 @@ build_ray_trace_meshes(const pvector<RayTraceScene::Instance> &instances) {
   acceleration_structure_barrier(_transfer_cmd,
     VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
     VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR);
+
+  for (size_t i = 0; i < to_query.size(); ++i) {
+    _vkCmdWriteAccelerationStructuresPropertiesKHR(_transfer_cmd, 1, &to_query[i],
+      VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR, query_pools[i], 0);
+  }
 
   if (vulkandisplay_cat.is_debug()) {
     vulkandisplay_cat.debug()
@@ -3237,6 +3572,7 @@ build_ray_trace_meshes(const pvector<RayTraceScene::Instance> &instances) {
 /**
  * Builds a new top-level structure for the given scene, after building any
  * meshes it uses that need it, and replaces the context's old one with it.
+ * Where only instances moved since, it is refitted from the old one.
  */
 bool VulkanGraphicsStateGuardian::
 build_ray_trace_scene(RayTraceScene *scene, VulkanBufferContext *bc) {
@@ -3244,7 +3580,9 @@ build_ray_trace_scene(RayTraceScene *scene, VulkanBufferContext *bc) {
   nassertr(_frame_data != nullptr, false);
 
   pvector<RayTraceScene::Instance> instances;
-  UpdateSeq seq = scene->get_instances(instances);
+  UpdateSeq layout;
+  unsigned int any_modified = RayTraceMesh::get_any_modified();
+  UpdateSeq seq = scene->get_instances(instances, layout);
 
   collect_ray_trace_meshes(false);
   if (!build_ray_trace_meshes(instances)) {
@@ -3255,6 +3593,11 @@ build_ray_trace_scene(RayTraceScene *scene, VulkanBufferContext *bc) {
   // visible to the GPU when the command buffer is submitted.  Their address
   // must be 16-byte aligned, which the buffer itself need not be.
   uint32_t num_instances = (uint32_t)instances.size();
+  pvector<VkDeviceAddress> addresses;
+  addresses.reserve(num_instances);
+  for (const RayTraceScene::Instance &inst : instances) {
+    addresses.push_back(_ray_trace_meshes[inst._mesh]._address);
+  }
   VkBuffer instance_buffer;
   VulkanMemoryBlock instance_block;
   if (!create_buffer(std::max(num_instances, 1u) * sizeof(VkAccelerationStructureInstanceKHR) + 15,
@@ -3272,7 +3615,8 @@ build_ray_trace_scene(RayTraceScene *scene, VulkanBufferContext *bc) {
     VulkanMemoryMapping mapping = instance_block.map();
     VkAccelerationStructureInstanceKHR *out = (VkAccelerationStructureInstanceKHR *)
       ((unsigned char *)(void *)mapping + (instance_address - buffer_address));
-    for (const RayTraceScene::Instance &inst : instances) {
+    for (size_t i = 0; i < instances.size(); ++i) {
+      const RayTraceScene::Instance &inst = instances[i];
       // Panda's matrices transform row vectors; Vulkan's, column vectors.
       const LMatrix4f &mat = inst._transform;
       for (int r = 0; r < 3; ++r) {
@@ -3285,7 +3629,7 @@ build_ray_trace_scene(RayTraceScene *scene, VulkanBufferContext *bc) {
       out->mask = inst._mask;
       out->instanceShaderBindingTableRecordOffset = 0;
       out->flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-      out->accelerationStructureReference = _ray_trace_meshes[inst._mesh]._address;
+      out->accelerationStructureReference = addresses[i];
       ++out;
     }
   }
@@ -3305,31 +3649,49 @@ build_ray_trace_scene(RayTraceScene *scene, VulkanBufferContext *bc) {
     VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
   };
   info.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-  info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-  info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+  info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR |
+               VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
   info.geometryCount = 1;
   info.pGeometries = &geom;
 
-  VkAccelerationStructureBuildSizesInfoKHR sizes = {
-    VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
-  };
-  _vkGetAccelerationStructureBuildSizesKHR(_device,
-    VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &info,
-    &num_instances, &sizes);
+  // Only moved (the same instances of the same meshes' structures): refit
+  // the old structure into a new one.  A mesh built for the first time (or
+  // emptied) changes its instances' addresses without a new layout.
+  bool refit = bc->_acceleration_structure != VK_NULL_HANDLE &&
+               bc->_built_layout_seq == layout &&
+               bc->_instance_addresses == addresses;
+
+  VkDeviceSize size, scratch_size;
+  if (refit) {
+    info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR;
+    info.srcAccelerationStructure = bc->_acceleration_structure;
+    size = bc->_as_size;
+    scratch_size = bc->_update_scratch_size;
+  } else {
+    info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+    VkAccelerationStructureBuildSizesInfoKHR sizes = {
+      VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
+    };
+    _vkGetAccelerationStructureBuildSizesKHR(_device,
+      VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &info,
+      &num_instances, &sizes);
+    size = sizes.accelerationStructureSize;
+    scratch_size = sizes.buildScratchSize;
+    bc->_update_scratch_size = sizes.updateScratchSize;
+  }
 
   VkAccelerationStructureKHR handle;
   VkBuffer buffer;
   VulkanMemoryBlock block;
   if (!create_acceleration_structure(VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
-                                     sizes.accelerationStructureSize,
-                                     handle, buffer, block)) {
+                                     size, handle, buffer, block)) {
     return false;
   }
   set_object_name(VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR, (void *)handle,
                   scene->get_name().empty() ? "<RayTraceScene>" : scene->get_name().c_str());
 
   info.dstAccelerationStructure = handle;
-  info.scratchData.deviceAddress = create_scratch_buffer(sizes.buildScratchSize);
+  info.scratchData.deviceAddress = create_scratch_buffer(scratch_size);
   if (info.scratchData.deviceAddress == 0) {
     _vkDestroyAccelerationStructureKHR(_device, handle, nullptr);
     vkDestroyBuffer(_device, buffer, nullptr);
@@ -3346,7 +3708,7 @@ build_ray_trace_scene(RayTraceScene *scene, VulkanBufferContext *bc) {
     VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
     VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR);
 
-  // The old one may still be read by frames in flight.
+  // The old one may still be read by frames in flight (and by the refit).
   if (bc->_acceleration_structure != VK_NULL_HANDLE) {
     _frame_data->_pending_destroy_acceleration_structures.push_back(bc->_acceleration_structure);
     _frame_data->_pending_destroy_buffers.push_back(bc->_buffer);
@@ -3356,7 +3718,16 @@ build_ray_trace_scene(RayTraceScene *scene, VulkanBufferContext *bc) {
   bc->_buffer = buffer;
   bc->_block = std::move(block);
   bc->_built_seq = seq;
-  bc->update_data_size_bytes(sizes.accelerationStructureSize);
+  bc->_built_layout_seq = layout;
+  bc->_mesh_generation = _ray_trace_mesh_generation;
+  bc->_seen_any_mesh_modified = any_modified;
+  bc->_instance_addresses = std::move(addresses);
+  bc->_as_size = size;
+  bc->update_data_size_bytes(size);
+  if (vulkandisplay_cat.is_debug()) {
+    vulkandisplay_cat.debug()
+      << (refit ? "Refitted " : "Built ") << *scene << "\n";
+  }
   return true;
 }
 
@@ -4233,6 +4604,11 @@ finish_frame(FrameData &frame_data) {
     _vkDestroyAccelerationStructureKHR(_device, as, nullptr);
   }
   frame_data._pending_destroy_acceleration_structures.clear();
+
+  for (VkQueryPool pool : frame_data._pending_destroy_query_pools) {
+    vkDestroyQueryPool(_device, pool, nullptr);
+  }
+  frame_data._pending_destroy_query_pools.clear();
 
   for (VkSemaphore semaphore : frame_data._pending_destroy_semaphores) {
     vkDestroySemaphore(_device, semaphore, nullptr);

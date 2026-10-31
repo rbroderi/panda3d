@@ -28,8 +28,9 @@
  *
  * Instances are placed in whatever space the shader traces rays in, usually
  * the world (render).  Changing them is cheap on the CPU; the GPU structure
- * is rebuilt, the next time a shader uses it, after any change.  This may be
- * done from any thread.
+ * is refitted, the next time a shader uses it, after instances only moved,
+ * and rebuilt after any other change (to its meshes too).  This may be done
+ * from any thread.
  *
  * This is only supported by the Vulkan renderer, on hardware that supports
  * ray queries.
@@ -60,13 +61,14 @@ public:
     uint32_t _mask;
     uint32_t _custom_index;
   };
-  UpdateSeq get_instances(pvector<Instance> &into) const;
+  UpdateSeq get_instances(pvector<Instance> &into, UpdateSeq &layout) const;
   UpdateSeq get_modified() const;
 
 private:
   mutable LightMutex _lock;
   pvector<Instance> _instances;
   UpdateSeq _modified;
+  UpdateSeq _layout_modified;
 
 public:
   virtual TypeHandle get_type() const {

@@ -14,7 +14,7 @@ if ($Validate) {
     $env:VK_KHRONOS_VALIDATION_VALIDATE_SYNC = 'true'
     $prc += "`nvulkan-validation true"
 }
-$code = "import faulthandler, runpy, sys; faulthandler.enable(); faulthandler.dump_traceback_later(400, exit=True); " +
+$code = "import faulthandler, runpy, sys; faulthandler.enable(); faulthandler.dump_traceback_later(150, exit=True); " +
         "from panda3d.core import loadPrcFileData; loadPrcFileData('', sys.argv[1].replace('|', chr(10))); " +
         "sys.argv = ['$Script'] + sys.argv[2:]; runpy.run_path(r'$PSScriptRoot\$Script', run_name='__main__')"
 $log = "$PSScriptRoot\run.log"

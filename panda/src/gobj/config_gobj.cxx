@@ -545,6 +545,14 @@ ConfigVariableBool stereo_lens_old_convergence
           "old, incorrect behavior, this may be set to 'true' to switch "
           "back to the old calculation."));
 
+ConfigVariableBool ray_trace_reference_geoms
+("ray-trace-reference-geoms", false,
+ PRC_DESC("Set this true to have a RayTraceMesh build plain triangle Geoms "
+          "straight from their own vertex and index buffers, instead of "
+          "copying their triangles.  Off by default: on an AMD Radeon "
+          "780M (25.20 drivers), a game's scene built this way lost the "
+          "device a few hundred frames later."));
+
 ConfigureFn(config_gobj) {
   AnimateVerticesRequest::init_type();
   BufferContext::init_type();
