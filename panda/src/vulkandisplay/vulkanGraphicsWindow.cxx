@@ -210,6 +210,15 @@ end_frame(FrameMode mode, Thread *current_thread) {
                                    0);
     //}
   }
+  else if (buffer._tc->_layout != VK_IMAGE_LAYOUT_PRESENT_SRC_KHR &&
+           buffer._tc->_layout != VK_IMAGE_LAYOUT_UNDEFINED) {
+    // A screenshot taken between frames copies from the image that is still
+    // waiting to be presented, so transition it back to the present state.
+    vkgsg->_render_cmd.add_barrier(buffer._tc,
+                                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                                   VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+                                   0);
+  }
 
   // Note: this will close the command buffer, and unsignal the previous
   // frame's semaphore.
