@@ -105,3 +105,12 @@ INLINE unsigned int RayTraceMesh::
 get_any_modified() {
   return _any_modified.load(std::memory_order_relaxed);
 }
+
+/**
+ * Returns the lock held while the mesh is changed.  A renderer holds it while
+ * it reads the mesh's ranges, vertices and indices.
+ */
+INLINE LightMutex &RayTraceMesh::
+get_lock() const {
+  return _lock;
+}

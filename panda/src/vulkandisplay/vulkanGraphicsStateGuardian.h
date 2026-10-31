@@ -194,7 +194,9 @@ public:
   VkDeviceAddress get_buffer_address(VkBuffer buffer) const;
   VkDeviceAddress get_acceleration_structure_address(VkAccelerationStructureKHR as) const;
   void compact_ray_trace_meshes();
-  bool build_ray_trace_meshes(const pvector<RayTraceScene::Instance> &instances);
+  bool is_ray_trace_mesh_ready(const RayTraceMesh *mesh, Thread *current_thread) const;
+  bool build_ray_trace_meshes(const pvector<RayTraceScene::Instance> &instances,
+                              bool &deferred);
   bool build_ray_trace_scene(RayTraceScene *scene, VulkanBufferContext *bc);
   void collect_ray_trace_meshes(bool all);
   bool create_acceleration_structure(VkAccelerationStructureTypeKHR type,

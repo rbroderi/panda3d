@@ -62,11 +62,15 @@ def reference_geoms():
     core.unload_prc_file(page)
 
 
-def test_ray_trace_mesh_copies_plain_triangles_by_default():
-    mesh = core.RayTraceMesh()
-    mesh.add_geom(make_quad())
-    assert mesh.num_triangles == 2
-    assert mesh.num_referenced_geoms == 0
+def test_ray_trace_mesh_copies_plain_triangles_if_asked():
+    page = core.load_prc_file_data("", "ray-trace-reference-geoms false")
+    try:
+        mesh = core.RayTraceMesh()
+        mesh.add_geom(make_quad())
+        assert mesh.num_triangles == 2
+        assert mesh.num_referenced_geoms == 0
+    finally:
+        core.unload_prc_file(page)
 
 
 def test_ray_trace_mesh_references_plain_triangles(reference_geoms):

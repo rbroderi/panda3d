@@ -13,6 +13,7 @@
 
 #include "rayTraceMesh.h"
 #include "config_gobj.h"
+#include "lightMutexHolder.h"
 #include "geomPrimitive.h"
 #include "geomTriangles.h"
 #include "geomVertexReader.h"
@@ -84,6 +85,7 @@ add_geom(const Geom *geom, const LMatrix4 &transform, Thread *current_thread) {
     return -1;
   }
 
+  LightMutexHolder holder(_lock);
   GeomRange range;
   range._transform = LCAST(float, transform);
   range._identity = range._transform.almost_equal(LMatrix4f::ident_mat());
@@ -141,6 +143,7 @@ add_geom(const Geom *geom, const LMatrix4 &transform, Thread *current_thread) {
  */
 void RayTraceMesh::
 clear() {
+  LightMutexHolder holder(_lock);
   _vertices.clear();
   _indices.clear();
   _ranges.clear();
@@ -159,6 +162,7 @@ clear() {
  */
 bool RayTraceMesh::
 update_animation(Thread *current_thread) {
+  LightMutexHolder holder(_lock);
   if (_num_animated == 0) {
     return false;
   }

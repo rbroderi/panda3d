@@ -22,6 +22,7 @@
 #include "updateSeq.h"
 #include "pvector.h"
 #include "patomic.h"
+#include "lightMutex.h"
 
 /**
  * A set of triangles that rays can be traced against: what Vulkan calls a
@@ -30,10 +31,10 @@
  *
  * A Geom added to it is kept one of three ways:
  *
- * - by reference, with ray-trace-reference-geoms on (it is off by default),
- *   if it is static and made of plain triangles with float vertex
- *   positions: the structure is built straight from the Geom's own vertex
- *   and index buffers on the GPU, with no copy on the CPU;
+ * - by reference, if it is static and made of plain triangles with float
+ *   vertex positions (and ray-trace-reference-geoms is on, as it is by
+ *   default): the structure is built straight from the Geom's own vertex and
+ *   index buffers on the GPU, with no copy on the CPU;
  * - posed, if its vertices are animated (skinned, or morphed by sliders):
  *   its triangles are copied as animated now, and again on each
  *   update_animation(), which the structure follows by refitting itself;
@@ -96,6 +97,10 @@ public:
   INLINE UpdateSeq get_layout_modified() const;
   INLINE static unsigned int get_any_modified();
 
+  // Held while the mesh is changed; a renderer holds it while it reads the
+  // ranges, vertices and indices (which the App thread may be changing).
+  INLINE LightMutex &get_lock() const;
+
 private:
   void note_modified(bool layout);
   void pose(GeomRange &range, Thread *current_thread);
@@ -110,6 +115,7 @@ private:
   int _num_vertices = 0;
   int _num_animated = 0;
   int _num_referenced = 0;
+  mutable LightMutex _lock;
 
   // Counts changes to every mesh, so that a scene can tell cheaply whether
   // any of its meshes may have changed.

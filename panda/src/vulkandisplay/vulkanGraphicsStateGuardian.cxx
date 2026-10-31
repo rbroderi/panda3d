@@ -2972,6 +2972,7 @@ use_ray_trace_scene(RayTraceScene *scene) {
   compact_ray_trace_meshes();
 
   bool rebuild = bc->_acceleration_structure == VK_NULL_HANDLE ||
+                 bc->_retry_meshes ||
                  bc->_built_seq != scene->get_modified() ||
                  bc->_mesh_generation != _ray_trace_mesh_generation;
   if (!rebuild && bc->_seen_any_mesh_modified != RayTraceMesh::get_any_modified()) {
@@ -3241,13 +3242,63 @@ compact_ray_trace_meshes() {
 }
 
 /**
+ * Returns true if the Geoms a mesh is built from by reference look, from this
+ * (the draw) thread, the way the mesh counted them when they were added.
+ *
+ * With a pipelined threading model, a Geom made and filled on the App thread
+ * reaches the draw thread's pipeline stage a frame or two later, and its
+ * vertex data and primitives each separately: building from it before then
+ * reads an empty or stale buffer next to indices past its end (which lost
+ * the device on AMD).  Copied ranges were copied on the App thread already.
+ */
+bool VulkanGraphicsStateGuardian::
+is_ray_trace_mesh_ready(const RayTraceMesh *mesh, Thread *current_thread) const {
+  for (const RayTraceMesh::GeomRange &range : mesh->get_ranges()) {
+    if (!range._referenced) {
+      continue;
+    }
+    CPT(GeomVertexData) vdata = range._geom->get_vertex_data(current_thread);
+    int array_index = vdata->get_format()->get_array_with(InternalName::get_vertex());
+    if (array_index < 0) {
+      return false;
+    }
+    int num_rows = vdata->get_num_rows();
+    if ((uint32_t)num_rows != range._num_vertices ||
+        vdata->get_array(array_index)->get_num_rows() != num_rows) {
+      return false;
+    }
+    uint32_t num_triangles = 0;
+    for (size_t pi = 0; pi < range._geom->get_num_primitives(); ++pi) {
+      CPT(GeomPrimitive) prim = range._geom->get_primitive(pi);
+      GeomPrimitivePipelineReader reader(prim, current_thread);
+      int num_prims = reader.get_num_primitives();
+      if (num_prims > 0 && reader.is_indexed()) {
+        reader.check_minmax();
+        if (reader.get_max_vertex() >= num_rows) {
+          return false;
+        }
+      }
+      num_triangles += (uint32_t)num_prims;
+    }
+    if (num_triangles != range._num_triangles) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Builds (or refits) the bottom-level structures of the meshes of the given
  * instances that have not been built, or have changed since.  All are built
  * with one command, followed by a barrier for the top-level build that reads
- * them, and the static ones' compacted sizes asked for.
+ * them, and the static ones' compacted sizes asked for.  A mesh whose Geoms
+ * the draw thread can't see as they are yet is left for later, and deferred
+ * is set to true.
  */
 bool VulkanGraphicsStateGuardian::
-build_ray_trace_meshes(const pvector<RayTraceScene::Instance> &instances) {
+build_ray_trace_meshes(const pvector<RayTraceScene::Instance> &instances,
+                       bool &deferred) {
+  deferred = false;
   Thread *current_thread = Thread::get_current_thread();
 
   struct Build {
@@ -3256,10 +3307,32 @@ build_ray_trace_meshes(const pvector<RayTraceScene::Instance> &instances) {
   };
   pvector<Build> builds;
   size_t num_geoms = 0;
+
+  // Each mesh considered is locked from here till all are built, so that the
+  // App thread can't change what was counted here before it is copied.
+  struct MeshLocks {
+    pvector<const RayTraceMesh *> _held;
+    ~MeshLocks() {
+      for (const RayTraceMesh *mesh : _held) {
+        mesh->get_lock().release();
+      }
+    }
+  } locks;
+
   for (const RayTraceScene::Instance &inst : instances) {
     RayTraceMesh *mesh = inst._mesh;
+    if (std::find(locks._held.begin(), locks._held.end(), mesh) != locks._held.end()) {
+      continue;
+    }
     RayTraceMeshData &data = _ray_trace_meshes[mesh];
     if (data._built_seq == mesh->get_modified()) {
+      continue;
+    }
+    mesh->get_lock().acquire();
+    locks._held.push_back(mesh);
+    if (!is_ray_trace_mesh_ready(mesh, current_thread)) {
+      // Try again next frame; till then it has its old structure, if any.
+      deferred = true;
       continue;
     }
     bool refit = data._handle != VK_NULL_HANDLE && data._can_update &&
@@ -3603,9 +3676,12 @@ build_ray_trace_scene(RayTraceScene *scene, VulkanBufferContext *bc) {
   UpdateSeq seq = scene->get_instances(instances, layout);
 
   collect_ray_trace_meshes(false);
-  if (!build_ray_trace_meshes(instances)) {
+  bool deferred;
+  if (!build_ray_trace_meshes(instances, deferred)) {
     return false;
   }
+  // A mesh left for later makes the next use build the scene again.
+  bc->_retry_meshes = deferred;
 
   // The instances are written straight into mappable memory, which is
   // visible to the GPU when the command buffer is submitted.  Their address
