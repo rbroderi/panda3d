@@ -3,8 +3,9 @@ import pytest
 import struct
 
 # A ray straight down (-z) from each texel of a SIZE x SIZE grid over -1..1,
-# writing (t, custom index of the instance hit, geometry index, 1), or
-# (-1, -1, -1, 1) if it hits nothing.
+# writing (geometry index, t, geometry index, custom index of the instance
+# hit), or (-1, -1, -1, -1) if it hits nothing.  The geometry index is in both
+# red and blue, so the result reads the same whichever of the two comes first.
 SIZE = 8
 RAY_QUERY_SHADER = """#version 460
 #extension GL_EXT_ray_query : require
@@ -18,11 +19,11 @@ void main() {
   rayQueryInitializeEXT(q, scene, gl_RayFlagsOpaqueEXT, 0xFF,
                         vec3(xy, 10.0), 0.0, vec3(0.0, 0.0, -1.0), 100.0);
   while (rayQueryProceedEXT(q)) {}
-  vec4 result = vec4(-1.0, -1.0, -1.0, 1.0);
+  vec4 result = vec4(-1.0, -1.0, -1.0, -1.0);
   if (rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
-    result = vec4(rayQueryGetIntersectionTEXT(q, true),
-                  float(rayQueryGetIntersectionInstanceCustomIndexEXT(q, true)),
-                  float(rayQueryGetIntersectionGeometryIndexEXT(q, true)), 1.0);
+    float geometry = float(rayQueryGetIntersectionGeometryIndexEXT(q, true));
+    result = vec4(geometry, rayQueryGetIntersectionTEXT(q, true), geometry,
+                  float(rayQueryGetIntersectionInstanceCustomIndexEXT(q, true)));
   }
   imageStore(hits, at, result);
 }
@@ -95,9 +96,8 @@ def trace(gsg, scene):
     engine.dispatch_compute((1, 1, 1), attrib, gsg)
     assert engine.extract_texture_data(hits, gsg)
     data = hits.get_ram_image()
-    # RAM images are BGRA.
     texels = [struct.unpack_from("4f", data, i * 16) for i in range(SIZE * SIZE)]
-    return [(r, g, b) for b, g, r, a in texels]
+    return [(t, custom, geometry) for geometry, t, _, custom in texels]
 
 
 def test_ray_query_capabilities(vk_gsg):
