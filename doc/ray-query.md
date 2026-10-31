@@ -64,15 +64,14 @@ Choices:
   NodePath's GeomNodes into meshes and instances belongs to the
   application for now (the game's `ray_scene.py`), because gobj cannot see
   pgraph; a `NodePath`-level helper could go in pgraph later.
-- **Triangles are copied on `add_geom`** (by default).  The mesh owns
-  float3 positions and uint32 indices; each Geom becomes one geometry (so a
-  hit's geometry index says which Geom).  Copying lets the GSG build from
-  any Geom, munged or not.  The cost is CPU memory and an upload per build;
-  static voxel buildings and terrain are built once.  Skinned or morphed
-  Geoms are copied *posed*; `update_animation()` poses them again and the
-  structure is refitted.  With `ray-trace-reference-geoms true`, plain
-  triangle Geoms are built straight from their own vertex and index buffers
-  instead (one geometry per primitive); off by default, see below.
+- **Plain triangles are built from the Geom's own buffers.**  A static Geom
+  of GeomTriangles with float positions is kept by reference: the GSG
+  builds from its vertex and index buffers (one geometry per primitive), so
+  nothing is copied on the CPU.  Other Geoms (strips, fans, other position
+  formats) are copied into the mesh's own float3 positions and uint32
+  indices, one geometry each; skinned or morphed ones are copied *posed*,
+  and `update_animation()` poses them again and the structure is refitted.
+  `ray-trace-reference-geoms false` copies every Geom.
 - **`RayTraceScene` derives from `ShaderBuffer`.**  So it reuses
   `ShaderInput`'s buffer path, `ShaderBufferBinding`, `prepare_now` and
   release with no new input type.  A shader parameter of the new
@@ -248,15 +247,25 @@ Engine:
   static meshes; skinned and morphed Geoms posed and refitted
   (`samples/ray-query/animated.py`: 0 disagreements with a CPU trace at two
   walk poses, 6677 rays' hits moved between them).
-- Builds from Geoms' own vertex and index buffers, behind
-  `ray-trace-reference-geoms` (default false).  On the 780M (25.20
-  drivers) the game's space battle, built that way, lost the device a few
-  hundred frames later, every time or nearly, and never with copies.
-  VK_EXT_device_fault reported a read fault at an address outside every
-  buffer Panda made.  Ruled out: compaction, scene refit, position fetch
-  and ALLOW_DATA_ACCESS, the per-geometry transforms, 256-byte alignment
-  of the inputs, and bad input (indices and positions checked on the CPU).
-  The tests and samples pass with it on.
+- Builds from Geoms' own vertex and index buffers (`ray-trace-reference-geoms`,
+  on by default).  These first lost the device in the game's battle on the
+  780M (a read fault outside every Panda buffer).
+  `samples/ray-query/stress.py` (a scene that keeps changing for thousands
+  of frames) reproduced it in seconds and found two bugs, the second only
+  with `--threaded`:
+  - A new mesh's compacted size was read the frame after its build without
+    waiting: till the query pool's reset has run, the query is undefined,
+    and the driver read it as available with some size in it, so the mesh
+    was copied into a corrupt structure.  Now read once that frame is done.
+  - With the Cull/Draw threading model a Geom filled on the App thread
+    reaches the draw thread's pipeline stage a frame or two later, vertex
+    data and primitives separately; built from before then, the structure
+    read indices past an empty or stale vertex buffer.  Now a mesh whose
+    Geoms don't look ready from the draw thread is built a frame later.
+    RayTraceMesh also gets a lock, held while it is changed and while the
+    GSG reads it.
+  Also: a GSG destroyed without being closed (Cull/Draw at exit) is closed
+  first, instead of leaking everything it prepared.
 - `GraphicsStateGuardian::get_supports_ray_query_position_fetch()`.
 - pytest: `tests/gobj/test_ray_trace.py` (no GPU) and
   `tests/display/test_ray_query.py` (Vulkan).  The gobj classes build
@@ -278,7 +287,6 @@ Found in passing (not ray queries):
   SPIRV-Cross.
 
 Still not done:
-- Why referenced builds lose the device in the game on AMD.
 - A NodePath helper in C++.
 
 ## Toward live global illumination
@@ -310,12 +318,10 @@ pixels, and a few thousand instances rebuild in about a millisecond.  So:
 (TLAS refit, compaction, builds from Panda's buffers and
 `get_supports_ray_query()` are done: see the fourth pass.)
 
-1. Find why referenced builds lose the device on AMD, then turn
-   `ray-trace-reference-geoms` on by default.
-2. A NodePath helper (`RayTraceScene.add_node(np)` in pgraph or a Python
+1. A NodePath helper (`RayTraceScene.add_node(np)` in pgraph or a Python
    extension) that flattens GeomNodes into meshes and instances.
-3. The OpenGL backend: GL_EXT_ray_query does not exist there; nothing to do.
-4. Hit attributes beyond the hit itself (barycentrics, primitive and
+2. The OpenGL backend: GL_EXT_ray_query does not exist there; nothing to do.
+3. Hit attributes beyond the hit itself (barycentrics, primitive and
    instance indices) already work through GLSL; reading the hit's material
    needs per-geometry buffers the application provides (SSBOs indexed by
    `rayQueryGetIntersectionInstanceCustomIndexEXT`).
