@@ -206,6 +206,36 @@ GraphicsEngine to close the GSG at exit aborts in the layer
 buffer is destroyed at exit while its last frame is in flight (two
 VUID-vkDestroyImage-image-01000).  Both are older than this work.
 
+## Third pass (2026-10-31)
+
+Engine:
+- `GraphicsStateGuardian::get_supports_ray_query()`, from new shader
+  capabilities `C_ray_query` and `C_ray_query_position_fetch` (declared by
+  SPIR-V modules that use them, supported by the Vulkan GSG when enabled).
+- Closing an offscreen buffer waits for its last frame before destroying
+  its images (was VUID-vkDestroyImage-image-01000 at exit).
+- (Merged from glass-accord-vulkan: the window's image goes back to the
+  present layout after a screenshot.)
+
+Game: traced shadows and live bounce in the battle view too (hulls with
+their own colors; a probe box over the lane), up to 32 shot lights,
+engines as steady lights, colony ships in the traced scene, the bounce
+volume generalised (one probe-to-world matrix) and smoothed over frames.
+Battle +1.5 ms; colony shadows +1.3 ms, bounce +2 ms; validation clean in
+both views.
+
+Still not done:
+- Engine: TLAS refit/update in place; building from Panda's own vertex
+  buffers; BLAS compaction; skinned geometry; a NodePath helper in C++;
+  upstream-ready tests (pytest) and a CMake check; a Python-side query for
+  position fetch (the game assumes it with ray queries).
+- Under the validation layer, a process that leaves the GSG to Panda's
+  static destructor aborts at exit (the layer is unloaded first); apps
+  should close their windows before exiting.
+- `NodePath.set_shader_input` from Python on an empty NodePath crashes
+  (access violation in `Extension<NodePath>::set_shader_input`) instead of
+  raising: upstream code, not changed here.
+
 ## Toward live global illumination
 
 Measured so far, a shadow ray costs well under a millisecond per million
