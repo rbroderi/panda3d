@@ -115,9 +115,14 @@ attachment_view(VulkanGraphicsStateGuardian *vkgsg, VulkanTextureContext *tc) co
 /**
  * Begins a dynamic rendering pass that renders into all of the attachments,
  * applying the clear settings from the given region.  Returns true on success.
+ * With resume, it instead carries on a pass that was ended part-way (for a
+ * compute dispatch), keeping what the attachments hold.
  */
 bool VulkanFramebuffer::
-begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region) {
+begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region,
+                bool resume) {
+  const VkAttachmentLoadOp keep = resume ? VK_ATTACHMENT_LOAD_OP_LOAD
+                                         : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   VulkanCommandBuffer &cmd = vkgsg->_render_cmd;
   nassertr((VkCommandBuffer)cmd != VK_NULL_HANDLE, false);
 
@@ -169,11 +174,11 @@ begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region) {
       }
 
       if (tc->_aspect_mask & VK_IMAGE_ASPECT_DEPTH_BIT) {
-        if (region->get_clear_active(DrawableRegion::RTP_depth)) {
+        if (!resume && region->get_clear_active(DrawableRegion::RTP_depth)) {
           depth_attachment.clearValue.depthStencil.depth = region->get_clear_depth();
           depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         } else {
-          depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+          depth_attachment.loadOp = keep;
         }
         depth_attachment.storeOp = attach._store_op;
         depth_attachment.imageView = view;
@@ -185,11 +190,11 @@ begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region) {
       }
 
       if (tc->_aspect_mask & VK_IMAGE_ASPECT_STENCIL_BIT) {
-        if (region->get_clear_active(DrawableRegion::RTP_stencil)) {
+        if (!resume && region->get_clear_active(DrawableRegion::RTP_stencil)) {
           stencil_attachment.clearValue.depthStencil.stencil = region->get_clear_stencil();
           stencil_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         } else {
-          stencil_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+          stencil_attachment.loadOp = keep;
         }
         stencil_attachment.storeOp = attach._store_op;
         stencil_attachment.imageView = view;
@@ -220,7 +225,7 @@ begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region) {
         color_attachments[render_info.colorAttachmentCount++];
       color_attachment = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
 
-      if (region->get_clear_active(DrawableRegion::RTP_color)) {
+      if (!resume && region->get_clear_active(DrawableRegion::RTP_color)) {
         LColor clear_color = region->get_clear_value(DrawableRegion::RTP_color);
         color_attachment.clearValue.color.float32[0] = clear_color[0];
         color_attachment.clearValue.color.float32[1] = clear_color[1];
@@ -228,7 +233,7 @@ begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region) {
         color_attachment.clearValue.color.float32[3] = clear_color[3];
         color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       } else {
-        color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        color_attachment.loadOp = keep;
       }
       color_attachment.storeOp = attach._store_op;
       color_attachment.imageView = attachment_view(vkgsg, tc);
@@ -263,6 +268,8 @@ begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region) {
   cmd.flush_barriers();
   vkgsg->_vkCmdBeginRendering(cmd, &render_info);
   vkgsg->_fb_config = _config_id;
+  vkgsg->_rendering_fb = this;
+  vkgsg->_rendering_region = region;
   return true;
 }
 
@@ -275,6 +282,7 @@ void VulkanFramebuffer::
 end_rendering(VulkanGraphicsStateGuardian *vkgsg) {
   VulkanCommandBuffer &cmd = vkgsg->_render_cmd;
   vkgsg->_vkCmdEndRendering(cmd);
+  vkgsg->_rendering_fb = nullptr;
 
   for (Attachment &attach : _attachments) {
     VkPipelineStageFlags2 write_stage_mask;

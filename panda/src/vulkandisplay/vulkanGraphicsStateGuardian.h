@@ -385,6 +385,12 @@ private:
   VulkanCommandBuffer _transfer_cmd;
   VulkanCommandBuffer _render_cmd;
 
+  // The framebuffer whose rendering pass is open in the render cmd, if any,
+  // and the region it was begun for: a compute dispatch, which may not happen
+  // inside the pass, ends it and resumes it after.
+  VulkanFramebuffer *_rendering_fb = nullptr;
+  DrawableRegion *_rendering_region = nullptr;
+
   uint64_t _next_begin_command_buffer_seq = 1;
   uint64_t _next_end_command_buffer_seq = 1;
   pvector<VkCommandBuffer> _free_command_buffers; // new and unused
