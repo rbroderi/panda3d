@@ -95,6 +95,12 @@ VulkanGraphicsStateGuardian(GraphicsEngine *engine, VulkanGraphicsPipe *pipe,
  */
 VulkanGraphicsStateGuardian::
 ~VulkanGraphicsStateGuardian() {
+  if (_prepared_objects != nullptr && _device != VK_NULL_HANDLE) {
+    // Never closed (with the Cull/Draw threading model, the last reference
+    // may go before the engine closes it): release what it prepared, and
+    // what its frames were to free, before the device goes.
+    close_gsg();
+  }
   destroy_device();
 }
 
