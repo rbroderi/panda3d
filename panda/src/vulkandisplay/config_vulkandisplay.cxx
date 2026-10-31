@@ -70,6 +70,19 @@ ConfigVariableBool vulkan_support_custom_border_color
           "If you do not need to use a different border color than these, it "
           "is strongly recommended to set this to false."));
 
+// Set once the process is exiting and this library is being unloaded.
+// Libraries are unloaded in the reverse order they were loaded, so by then
+// the Vulkan layers (loaded when the instance was created) have already been
+// torn down: a GSG closed after this point, by the GraphicsEngine's static
+// destructor in libpanda, must not call into Vulkan.  It leaves its objects
+// for the system to reclaim with the process.
+bool vulkan_process_exiting = false;
+
+static void
+note_process_exiting() {
+  vulkan_process_exiting = true;
+}
+
 #define VK_ERROR_INVALID_SHADER_NV -1000012000
 
 /**
@@ -85,6 +98,9 @@ init_libvulkandisplay() {
     return;
   }
   initialized = true;
+
+  // In a DLL, atexit runs when the library is unloaded.
+  atexit(note_process_exiting);
 
   VulkanGeomMunger::init_type();
   VulkanGraphicsBuffer::init_type();

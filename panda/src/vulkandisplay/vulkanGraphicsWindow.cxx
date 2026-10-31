@@ -351,6 +351,13 @@ end_flip() {
  */
 void VulkanGraphicsWindow::
 close_window() {
+  if (vulkan_process_exiting) {
+    // Too late to talk to Vulkan (see config_vulkandisplay).
+    _gsg.clear();
+    BaseGraphicsWindow::close_window();
+    return;
+  }
+
   // Destroy the previous swapchain first, if we had one.
   if (!_gsg.is_null()) {
     VulkanGraphicsStateGuardian *vkgsg;

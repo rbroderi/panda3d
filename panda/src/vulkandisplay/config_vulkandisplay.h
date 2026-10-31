@@ -25,6 +25,7 @@ extern ConfigVariableInt64 vulkan_memory_page_size;
 extern ConfigVariableInt64 vulkan_global_uniform_buffer_size;
 extern ConfigVariableInt64 vulkan_staging_buffer_size;
 extern ConfigVariableBool vulkan_support_custom_border_color;
+extern bool vulkan_process_exiting;
 
 extern EXPCL_VULKANDISPLAY void init_libvulkandisplay();
 extern "C" EXPCL_VULKANDISPLAY int get_pipe_type_p3vulkandisplay();

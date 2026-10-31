@@ -890,6 +890,13 @@ destroy_device() {
     nassertv(_memory_pages.empty());
     return;
   }
+  if (vulkan_process_exiting) {
+    // Too late to talk to Vulkan (see config_vulkandisplay); the pages free
+    // nothing either.
+    _memory_pages.clear();
+    _device = VK_NULL_HANDLE;
+    return;
+  }
 
   // Remove the things we created in the constructor, in reverse order.
   vkDestroyBuffer(_device, _uniform_buffer, nullptr);
@@ -933,6 +940,11 @@ destroy_device() {
  */
 void VulkanGraphicsStateGuardian::
 close_gsg() {
+  if (vulkan_process_exiting) {
+    // Too late to talk to Vulkan (see config_vulkandisplay).
+    return;
+  }
+
   // All pending work should be submitted.
   flush();
 
