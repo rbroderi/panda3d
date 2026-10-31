@@ -39,6 +39,16 @@ public:
   // in _buffer, and the scene's modified seq it was built from.
   VkAccelerationStructureKHR _acceleration_structure = VK_NULL_HANDLE;
   UpdateSeq _built_seq;
+  // What it was built from, to tell whether a change can be refitted.
+  UpdateSeq _built_layout_seq;
+  unsigned int _mesh_generation = 0;
+  unsigned int _seen_any_mesh_modified = 0;
+  bool _retry_meshes = false;
+  // Each instance's mesh's structure: an update may move instances, but not
+  // change these (nor make one active or inactive).
+  pvector<VkDeviceAddress> _instance_addresses;
+  VkDeviceSize _as_size = 0;
+  VkDeviceSize _update_scratch_size = 0;
   // If false, extraction copies through a readback staging buffer, because
   // reading the buffer's own memory directly is impossible or too slow.
   bool _direct_readback = false;

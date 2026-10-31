@@ -20,23 +20,42 @@ get_num_geoms() const {
 }
 
 /**
- * Returns the number of vertices in the mesh.
+ * Returns the number of vertices in the mesh, referenced Geoms' included.
  */
 INLINE int RayTraceMesh::
 get_num_vertices() const {
-  return (int)_vertices.size();
+  return _num_vertices;
 }
 
 /**
- * Returns the number of triangles in the mesh.
+ * Returns the number of triangles in the mesh, referenced Geoms' included.
  */
 INLINE int RayTraceMesh::
 get_num_triangles() const {
-  return (int)(_indices.size() / 3);
+  return _num_triangles;
 }
 
 /**
- * Returns the vertex positions, in the mesh's own space.
+ * Returns true if any of the mesh's Geoms is animated: update_animation()
+ * poses it again.
+ */
+INLINE bool RayTraceMesh::
+is_animated() const {
+  return _num_animated > 0;
+}
+
+/**
+ * Returns how many of the mesh's Geoms are built from their own buffers on
+ * the GPU (the rest are copied).
+ */
+INLINE int RayTraceMesh::
+get_num_referenced_geoms() const {
+  return _num_referenced;
+}
+
+/**
+ * Returns the copied and posed Geoms' vertex positions, in the mesh's own
+ * space.
  */
 INLINE const pvector<LVecBase3f> &RayTraceMesh::
 get_vertices() const {
@@ -44,8 +63,8 @@ get_vertices() const {
 }
 
 /**
- * Returns three vertex indices per triangle.  Indices are relative to the
- * first vertex of the triangle's GeomRange.
+ * Returns three vertex indices per copied or posed triangle.  Indices are
+ * relative to the first vertex of the triangle's GeomRange.
  */
 INLINE const pvector<uint32_t> &RayTraceMesh::
 get_indices() const {
@@ -61,9 +80,37 @@ get_ranges() const {
 }
 
 /**
- * Returns a sequence number that changes whenever the mesh is changed.
+ * Returns a sequence number that changes whenever the mesh is changed,
+ * animation included.
  */
 INLINE UpdateSeq RayTraceMesh::
 get_modified() const {
   return _modified;
+}
+
+/**
+ * Returns a sequence number that changes whenever the mesh's geometry is
+ * added or removed, but not when it is only posed again: while it is the
+ * same, the GPU structure can be refitted instead of rebuilt.
+ */
+INLINE UpdateSeq RayTraceMesh::
+get_layout_modified() const {
+  return _layout_modified;
+}
+
+/**
+ * Returns a number that changes whenever any mesh is changed.
+ */
+INLINE unsigned int RayTraceMesh::
+get_any_modified() {
+  return _any_modified.load(std::memory_order_relaxed);
+}
+
+/**
+ * Returns the lock held while the mesh is changed.  A renderer holds it while
+ * it reads the mesh's ranges, vertices and indices.
+ */
+INLINE LightMutex &RayTraceMesh::
+get_lock() const {
+  return _lock;
 }

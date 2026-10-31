@@ -545,6 +545,13 @@ ConfigVariableBool stereo_lens_old_convergence
           "old, incorrect behavior, this may be set to 'true' to switch "
           "back to the old calculation."));
 
+ConfigVariableBool ray_trace_reference_geoms
+("ray-trace-reference-geoms", true,
+ PRC_DESC("If this is true, a RayTraceMesh builds plain triangle Geoms "
+          "straight from their own vertex and index buffers.  Set it false "
+          "to have it copy their triangles instead, as it does other "
+          "Geoms."));
+
 ConfigureFn(config_gobj) {
   AnimateVerticesRequest::init_type();
   BufferContext::init_type();

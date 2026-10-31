@@ -45,6 +45,7 @@ add_instance(RayTraceMesh *mesh, const LMatrix4 &transform,
   LightMutexHolder holder(_lock);
   _instances.push_back(std::move(inst));
   ++_modified;
+  ++_layout_modified;
   return (int)_instances.size() - 1;
 }
 
@@ -69,6 +70,7 @@ set_instance_mask(int n, unsigned int mask) {
   nassertv(n >= 0 && (size_t)n < _instances.size());
   _instances[n]._mask = mask & 0xff;
   ++_modified;
+  ++_layout_modified;
 }
 
 /**
@@ -81,6 +83,7 @@ set_instance_mesh(int n, RayTraceMesh *mesh) {
   nassertv(n >= 0 && (size_t)n < _instances.size());
   _instances[n]._mesh = mesh;
   ++_modified;
+  ++_layout_modified;
 }
 
 /**
@@ -91,6 +94,7 @@ clear_instances() {
   LightMutexHolder holder(_lock);
   _instances.clear();
   ++_modified;
+  ++_layout_modified;
 }
 
 /**
@@ -133,12 +137,14 @@ output(std::ostream &out) const {
 
 /**
  * Copies the instances, for building the GPU structure, and returns the
- * sequence number of the copy.
+ * sequence number of the copy; layout is set to its layout's (which only
+ * moving an instance leaves as it is).
  */
 UpdateSeq RayTraceScene::
-get_instances(pvector<Instance> &into) const {
+get_instances(pvector<Instance> &into, UpdateSeq &layout) const {
   LightMutexHolder holder(_lock);
   into = _instances;
+  layout = _layout_modified;
   return _modified;
 }
 

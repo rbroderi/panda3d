@@ -192,7 +192,11 @@ private:
 
 public:
   VkDeviceAddress get_buffer_address(VkBuffer buffer) const;
-  bool build_ray_trace_meshes(const pvector<RayTraceScene::Instance> &instances);
+  VkDeviceAddress get_acceleration_structure_address(VkAccelerationStructureKHR as) const;
+  void compact_ray_trace_meshes();
+  bool is_ray_trace_mesh_ready(const RayTraceMesh *mesh, Thread *current_thread) const;
+  bool build_ray_trace_meshes(const pvector<RayTraceScene::Instance> &instances,
+                              bool &deferred);
   bool build_ray_trace_scene(RayTraceScene *scene, VulkanBufferContext *bc);
   void collect_ray_trace_meshes(bool all);
   bool create_acceleration_structure(VkAccelerationStructureTypeKHR type,
@@ -433,14 +437,29 @@ private:
   // mesh; once it holds the only one, the structure is destroyed.
   struct RayTraceMeshData {
     UpdateSeq _built_seq;
+    UpdateSeq _layout_seq;
     VkAccelerationStructureKHR _handle = VK_NULL_HANDLE;
     VkBuffer _buffer = VK_NULL_HANDLE;
     VulkanMemoryBlock _block;
     VkDeviceAddress _address = 0;
+    VkDeviceSize _size = 0;
+    VkDeviceSize _update_scratch_size = 0;
+    // Built to be refitted (an animated mesh's).
+    bool _can_update = false;
+    // A static mesh's compacted size is asked for in this, after a build, by
+    // the given frame; it may be read once that frame is done.
+    VkQueryPool _query_pool = VK_NULL_HANDLE;
+    bool _compaction_pending = false;
+    uint64_t _compaction_frame = 0;
   };
+  void release_ray_trace_mesh_structure(RayTraceMeshData &data);
   typedef pmap<PT(RayTraceMesh), RayTraceMeshData> RayTraceMeshes;
   RayTraceMeshes _ray_trace_meshes;
   VkDeviceSize _scratch_alignment = 256;
+  // Changes whenever a mesh's structure is replaced (rebuilt, refitted,
+  // compacted or dropped): a scene's must then be rebuilt.
+  unsigned int _ray_trace_mesh_generation = 0;
+  uint64_t _ray_trace_compaction_frame = 0;
 
   // Limits.
   uint32_t _max_inline_uniform_block_size = 0;
@@ -468,6 +487,8 @@ private:
   PFN_vkGetAccelerationStructureBuildSizesKHR _vkGetAccelerationStructureBuildSizesKHR = nullptr;
   PFN_vkGetAccelerationStructureDeviceAddressKHR _vkGetAccelerationStructureDeviceAddressKHR = nullptr;
   PFN_vkGetBufferDeviceAddress _vkGetBufferDeviceAddress = nullptr;
+  PFN_vkCmdCopyAccelerationStructureKHR _vkCmdCopyAccelerationStructureKHR = nullptr;
+  PFN_vkCmdWriteAccelerationStructuresPropertiesKHR _vkCmdWriteAccelerationStructuresPropertiesKHR = nullptr;
 
   static PStatCollector _pipeline_cache_inline_hits_pcollector;
   static PStatCollector _pipeline_cache_main_hits_pcollector;
