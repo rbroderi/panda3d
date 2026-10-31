@@ -2,6 +2,14 @@ if(NOT HAVE_GL)
   return()
 endif()
 
+if(NOT HAVE_SPIRV-CROSS)
+  # The shader code transpiles SPIR-V to GLSL, so this isn't optional.
+  message(SEND_ERROR
+    "OpenGL support needs SPIRV-Cross.  Enable HAVE_SPIRV-CROSS, or disable "
+    "HAVE_GL to continue.")
+  return()
+endif()
+
 set(P3GLSTUFF_HEADERS
   glGeomContext_src.I
   glGeomContext_src.h
