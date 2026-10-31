@@ -305,7 +305,30 @@ create_modules(VulkanGraphicsStateGuardian *gsg) {
 
     auto other_state_block_ids = spv_module->get_parameter_ids_from_names(other_state_block_params);
 
-    SpirVTransformer transformer(spv_module->_instructions);
+    // A shader compiled with debug options calls debugPrintfEXT, but nothing
+    // shows those messages here but the validation layer, and the AMD driver
+    // crashes building a pipeline whose shader prints a string (found with
+    // the 25.20 drivers on Windows 11).  Strip the calls without the layer.
+    ShaderModuleSpirV::InstructionStream stream = spv_module->_instructions;
+    if (!vulkan_validation) {
+      uint32_t debug_printf_import = 0;
+      for (auto it = stream.begin(); it != stream.end();) {
+        ShaderModuleSpirV::Instruction op = *it;
+
+        if (op.opcode == spv::OpExtInstImport && strcmp((const char*)&op.args[1], "NonSemantic.DebugPrintf") == 0) {
+          debug_printf_import = op.args[0];
+          it = stream.erase(it);
+        }
+        else if (op.opcode == spv::OpExtInst && debug_printf_import != 0 && debug_printf_import == op.args[2]) {
+          it = stream.erase(it);
+        }
+        else {
+          ++it;
+        }
+      }
+    }
+
+    SpirVTransformer transformer(stream);
     transformer.change_to_vulkan_conventions();
 
     // Determine the ids making up the inputs for the descriptor sets.
