@@ -116,6 +116,19 @@ ConfigVariableBool vulkan_fragment_shading_rate
           "DisplayRegion's shading rate texture chooses how finely each block "
           "of it is shaded."));
 
+ConfigVariableBool vulkan_xess
+("vulkan-xess", true,
+ PRC_DESC("If this is set to true, and Intel's XeSS library loads "
+          "(vulkan-xess-library) and the video card has what it needs, the "
+          "device is made with its extensions and features, and an "
+          "UpscaleNode upscales with XeSS Super Resolution."));
+
+ConfigVariableFilename vulkan_xess_library
+("vulkan-xess-library", "libxess.dll",
+ PRC_DESC("Where Intel's XeSS library is (libxess.dll, from its SDK; not "
+          "part of Panda3D), for vulkan-xess: a full path, or a name the "
+          "system's library search finds."));
+
 // Set once the process is exiting and this library is being unloaded.
 // Libraries are unloaded in the reverse order they were loaded, so by then
 // the Vulkan layers (loaded when the instance was created) have already been

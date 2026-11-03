@@ -69,6 +69,7 @@ static const std::string default_fshader =
 static PStatCollector _make_pipeline_pcollector("Draw:Primitive:Make Pipeline");
 static PStatCollector _update_lattr_descriptor_set_pcollector("Draw:Update Descriptor Sets:LightAttrib");
 static PStatCollector _bind_descriptor_sets_pcollector("Draw:Set State:Bind Descriptor Sets");
+static PStatCollector _upscale_pcollector("Draw:Upscale");
 static PStatCollector _finish_frame_pcollector("Draw:Finish Frame");
 static PStatCollector _wait_semaphore_pcollector("Wait:Semaphore");
 
@@ -475,6 +476,36 @@ reset() {
     enabled_features.pNext = &portability_features;
 
     extensions.push_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
+  }
+
+  // Intel's XeSS, for an UpscaleNode: the extensions and features its library
+  // asks for.  Its integer dot product and mutable descriptor structures are
+  // chained first, empty, for it to set, so that it adds no Vulkan 1.3
+  // structure beside the separate ones above.
+  VkPhysicalDeviceShaderIntegerDotProductFeatures idp_features = {
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_FEATURES,
+    enabled_features.pNext,
+  };
+  VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT mdt_features = {
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_EXT,
+    &idp_features,
+  };
+  _supports_upscale = false;
+  if (vulkan_xess && pipe->_gpu_properties.apiVersion >= VK_MAKE_VERSION(1, 3, 0) &&
+      pipe->has_device_extension(VK_EXT_MUTABLE_DESCRIPTOR_TYPE_EXTENSION_NAME) &&
+      _xess.load()) {
+    void *chain = enabled_features.pNext;
+    VkPhysicalDeviceFeatures base = enabled_features.features;
+    enabled_features.pNext = &mdt_features;
+    size_t num_extensions = extensions.size();
+    if (_xess.add_device_requirements(pipe->_instance, pipe->_gpu, extensions,
+                                      &enabled_features)) {
+      _supports_upscale = true;
+    } else {
+      enabled_features.pNext = chain;
+      enabled_features.features = base;
+      extensions.resize(num_extensions);
+    }
   }
 
   // Create a queue in the given queue family.  For now, we assume NVIDIA,
@@ -1260,6 +1291,7 @@ close_gsg() {
 
   // Make sure it's no longer doing anything before we destroy it.
   vkDeviceWaitIdle(_device);
+  _xess.destroy(_device);
 
   // Call finish_frame() on all frames.  We don't need to wait on the
   // semaphore due to the above call.
@@ -4297,6 +4329,67 @@ draw_mesh_tasks(int num_groups_x, int num_groups_y, int num_groups_z) {
   _render_cmd.flush_barriers();
 
   _vkCmdDrawMeshTasksEXT(_render_cmd, num_groups_x, num_groups_y, num_groups_z);
+}
+
+/**
+ * Has XeSS build the UpscaleNode's output from its color, depth and motion,
+ * as the given thread's pipeline stage sees them (see UpscaleNode).  Without
+ * XeSS (vulkan-xess), draws nothing.
+ */
+void VulkanGraphicsStateGuardian::
+dispatch_upscale(const UpscaleNode *node, Thread *current_thread) {
+  nassertv(_render_cmd);
+  if (!_supports_upscale) {
+    GraphicsStateGuardian::dispatch_upscale(node, current_thread);
+    return;
+  }
+  UpscaleNode::Params params = node->get_params(current_thread);
+  if (params._color == nullptr || params._depth == nullptr ||
+      params._motion == nullptr || params._output == nullptr) {
+    return;
+  }
+
+  PStatGPUTimer timer(this, _upscale_pcollector);
+
+  // As a dispatch, XeSS's may not happen inside a rendering pass: end the
+  // pass, and resume it after.
+  VulkanFramebuffer *fb = _rendering_fb;
+  DrawableRegion *region = _rendering_region;
+  if (fb != nullptr) {
+    fb->end_rendering(this);
+  }
+
+  const VkPipelineStageFlags2 stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  const VkImageLayout read = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  VulkanTextureContext *color = use_texture(params._color, read, stage, VK_ACCESS_2_SHADER_READ_BIT);
+  VulkanTextureContext *depth = use_texture(params._depth, read, stage, VK_ACCESS_2_SHADER_READ_BIT);
+  VulkanTextureContext *motion = use_texture(params._motion, read, stage, VK_ACCESS_2_SHADER_READ_BIT);
+  // XeSS keeps its own history: what was in the output does not matter.
+  VulkanTextureContext *output = use_texture(params._output, VK_IMAGE_LAYOUT_GENERAL, stage,
+                                             VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+                                             true);
+  if (color != nullptr && depth != nullptr && motion != nullptr && output != nullptr) {
+    _render_cmd.flush_barriers();
+
+    LVecBase2i input = params._input_size;
+    if (input[0] <= 0 || input[1] <= 0) {
+      input.set(color->_extent.width, color->_extent.height);
+    }
+    VulkanGraphicsPipe *pipe;
+    DCAST_INTO_V(pipe, get_pipe());
+    if (!_xess.execute(pipe->_instance, pipe->_gpu, _device, _render_cmd,
+                       color, depth, motion, output, input, params)) {
+      _supports_upscale = false;
+    }
+
+    // XeSS bound its own pipelines and descriptor sets: bind ours again.
+    _current_shader = nullptr;
+    _current_sc = nullptr;
+  }
+
+  if (fb != nullptr) {
+    fb->begin_rendering(this, region, true);
+  }
 }
 
 /**

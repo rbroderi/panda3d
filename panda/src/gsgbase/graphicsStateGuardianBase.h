@@ -34,6 +34,7 @@ class NodePath;
 class GraphicsOutputBase;
 class ScreenshotRequest;
 class AsyncFuture;
+class UpscaleNode;
 
 class VertexBufferContext;
 class IndexBufferContext;
@@ -186,6 +187,7 @@ public:
 
   virtual void dispatch_compute(int size_x, int size_y, int size_z)=0;
   virtual void draw_mesh_tasks(int size_x, int size_y, int size_z)=0;
+  virtual void dispatch_upscale(const UpscaleNode *node, Thread *current_thread)=0;
 
   virtual PT(GeomMunger) get_geom_munger(const RenderState *state,
                                          Thread *current_thread)=0;

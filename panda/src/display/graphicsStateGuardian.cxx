@@ -882,6 +882,21 @@ draw_mesh_tasks(int num_groups_x, int num_groups_y, int num_groups_z) {
 }
 
 /**
+ * Has the GSG's temporal upscaler build the UpscaleNode's output, as its
+ * pipeline stage in the given thread sees it.  A GSG without one draws
+ * nothing; check get_supports_upscale() to upscale otherwise.
+ */
+void GraphicsStateGuardian::
+dispatch_upscale(const UpscaleNode *node, Thread *current_thread) {
+  static bool warned = false;
+  if (!warned) {
+    warned = true;
+    display_cat.warning()
+      << get_type() << " has no temporal upscaler; an UpscaleNode draws nothing.\n";
+  }
+}
+
+/**
  * Looks up or creates a GeomMunger object to munge vertices appropriate to
  * this GSG for the indicated state.
  */

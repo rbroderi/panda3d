@@ -667,6 +667,17 @@ get_supports_fragment_shading_rate() const {
 }
 
 /**
+ * Returns true if this GSG has a temporal upscaler an UpscaleNode can use,
+ * false otherwise (it then draws nothing).  The Vulkan renderer has Intel's
+ * XeSS where vulkan-xess-library loads.  Known once the GSG is ready, after
+ * the window opens.
+ */
+INLINE bool GraphicsStateGuardian::
+get_supports_upscale() const {
+  return _supports_upscale;
+}
+
+/**
  * Returns the number of pixels, across and down, covered by one texel of a
  * shading rate texture, or (0, 0) if variable-rate shading is not supported.
  */

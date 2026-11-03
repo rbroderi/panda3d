@@ -13,3 +13,4 @@
 #include "vulkanShaderContext.cxx"
 #include "vulkanTextureContext.cxx"
 #include "vulkanVertexBufferContext.cxx"
+#include "vulkanXess.cxx"

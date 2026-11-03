@@ -20,6 +20,7 @@
 #include "vulkanFrameData.h"
 #include "vulkanMemoryPage.h"
 #include "vulkanShaderContext.h"
+#include "vulkanXess.h"
 #include "circularAllocator.h"
 #include "completionToken.h"
 #include "rayTraceScene.h"
@@ -111,6 +112,7 @@ public:
 
   virtual void dispatch_compute(int size_x, int size_y, int size_z);
   virtual void draw_mesh_tasks(int size_x, int size_y, int size_z);
+  virtual void dispatch_upscale(const UpscaleNode *node, Thread *current_thread);
 
   virtual PT(GeomMunger) make_geom_munger(const RenderState *state,
                                           Thread *current_thread);
@@ -456,6 +458,8 @@ private:
   bool _supports_ray_query = false;
   bool _supports_ray_position_fetch = false;
   bool _supports_mesh_shader = false;
+  // XeSS, an UpscaleNode's upscaler (GraphicsStateGuardian::_supports_upscale).
+  VulkanXess _xess;
   // The subgroup size every compute pipeline asks for, or 0 for the driver's
   // choice (vulkan-compute-subgroup-size).
   uint32_t _compute_subgroup_size = 0;

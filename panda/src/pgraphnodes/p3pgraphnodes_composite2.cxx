@@ -8,4 +8,5 @@
 #include "sphereLight.cxx"
 #include "spotlight.cxx"
 #include "switchNode.cxx"
+#include "upscaleNode.cxx"
 #include "uvScrollNode.cxx"

@@ -19,6 +19,7 @@
 #include "configVariableBool.h"
 #include "configVariableInt64.h"
 #include "configVariableInt.h"
+#include "configVariableFilename.h"
 
 NotifyCategoryDecl(vulkandisplay, EXPCL_VULKANDISPLAY, EXPTP_VULKANDISPLAY);
 
@@ -33,6 +34,8 @@ extern ConfigVariableInt vulkan_compute_subgroup_size;
 extern ConfigVariableBool vulkan_fragment_shading_rate;
 extern ConfigVariableBool vulkan_texture_tables;
 extern ConfigVariableInt vulkan_max_texture_table_size;
+extern ConfigVariableBool vulkan_xess;
+extern ConfigVariableFilename vulkan_xess_library;
 extern bool vulkan_process_exiting;
 
 extern EXPCL_VULKANDISPLAY void init_libvulkandisplay();

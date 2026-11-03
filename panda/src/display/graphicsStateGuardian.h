@@ -170,6 +170,7 @@ PUBLISHED:
   INLINE bool get_supports_texture_tables() const;
   INLINE int get_max_texture_table_size() const;
   INLINE bool get_supports_fragment_shading_rate() const;
+  INLINE bool get_supports_upscale() const;
   INLINE LVecBase2i get_fragment_shading_rate_texel_size() const;
   INLINE LVecBase2i get_max_fragment_shading_rate() const;
   INLINE bool get_supports_glsl() const;
@@ -234,6 +235,7 @@ PUBLISHED:
   MAKE_PROPERTY(supports_texture_tables, get_supports_texture_tables);
   MAKE_PROPERTY(max_texture_table_size, get_max_texture_table_size);
   MAKE_PROPERTY(supports_fragment_shading_rate, get_supports_fragment_shading_rate);
+  MAKE_PROPERTY(supports_upscale, get_supports_upscale);
   MAKE_PROPERTY(fragment_shading_rate_texel_size, get_fragment_shading_rate_texel_size);
   MAKE_PROPERTY(max_fragment_shading_rate, get_max_fragment_shading_rate);
   MAKE_PROPERTY(supports_glsl, get_supports_glsl);
@@ -362,6 +364,7 @@ public:
 
   virtual void dispatch_compute(int size_x, int size_y, int size_z);
   virtual void draw_mesh_tasks(int size_x, int size_y, int size_z);
+  virtual void dispatch_upscale(const UpscaleNode *node, Thread *current_thread);
 
   virtual PT(GeomMunger) get_geom_munger(const RenderState *state,
                                          Thread *current_thread);
@@ -665,6 +668,7 @@ protected:
 
   int _max_texture_table_size = 0;
   bool _supports_fragment_shading_rate = false;
+  bool _supports_upscale = false;
   LVecBase2i _fragment_shading_rate_texel_size = LVecBase2i(0, 0);
   LVecBase2i _max_fragment_shading_rate = LVecBase2i(1, 1);
 
