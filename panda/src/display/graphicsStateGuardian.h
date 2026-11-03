@@ -169,6 +169,9 @@ PUBLISHED:
   INLINE bool get_supports_mesh_shaders() const;
   INLINE bool get_supports_texture_tables() const;
   INLINE int get_max_texture_table_size() const;
+  INLINE bool get_supports_fragment_shading_rate() const;
+  INLINE LVecBase2i get_fragment_shading_rate_texel_size() const;
+  INLINE LVecBase2i get_max_fragment_shading_rate() const;
   INLINE bool get_supports_glsl() const;
   INLINE bool get_supports_hlsl() const;
   INLINE bool get_supports_stencil() const;
@@ -230,6 +233,9 @@ PUBLISHED:
   MAKE_PROPERTY(supports_mesh_shaders, get_supports_mesh_shaders);
   MAKE_PROPERTY(supports_texture_tables, get_supports_texture_tables);
   MAKE_PROPERTY(max_texture_table_size, get_max_texture_table_size);
+  MAKE_PROPERTY(supports_fragment_shading_rate, get_supports_fragment_shading_rate);
+  MAKE_PROPERTY(fragment_shading_rate_texel_size, get_fragment_shading_rate_texel_size);
+  MAKE_PROPERTY(max_fragment_shading_rate, get_max_fragment_shading_rate);
   MAKE_PROPERTY(supports_glsl, get_supports_glsl);
   MAKE_PROPERTY(supports_hlsl, get_supports_hlsl);
   MAKE_PROPERTY(supports_stencil, get_supports_stencil);
@@ -658,6 +664,9 @@ protected:
   int _max_compute_work_group_invocations;
 
   int _max_texture_table_size = 0;
+  bool _supports_fragment_shading_rate = false;
+  LVecBase2i _fragment_shading_rate_texel_size = LVecBase2i(0, 0);
+  LVecBase2i _max_fragment_shading_rate = LVecBase2i(1, 1);
 
   bool _supports_stencil;
   bool _supports_stencil_wrap;

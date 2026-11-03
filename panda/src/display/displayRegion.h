@@ -38,6 +38,7 @@
 #include "callbackObject.h"
 #include "luse.h"
 #include "small_vector.h"
+#include "texture.h"
 
 class GraphicsOutput;
 class GraphicsPipe;
@@ -137,6 +138,11 @@ PUBLISHED:
   INLINE void set_scissor_enabled(bool scissor_enabled);
   INLINE bool get_scissor_enabled() const;
   MAKE_PROPERTY(scissor_enabled, get_scissor_enabled, set_scissor_enabled);
+
+  INLINE void set_shading_rate_texture(Texture *texture);
+  INLINE void clear_shading_rate_texture();
+  INLINE Texture *get_shading_rate_texture() const;
+  MAKE_PROPERTY(shading_rate_texture, get_shading_rate_texture, set_shading_rate_texture);
 
   INLINE void set_cull_callback(CallbackObject *object);
   INLINE void clear_cull_callback();
@@ -249,6 +255,7 @@ private:
     int _tex_view_offset;
     int _target_tex_page;
     bool _scissor_enabled;
+    PT(Texture) _shading_rate_texture;
 
     PT(CallbackObject) _cull_callback;
     PT(CallbackObject) _draw_callback;
@@ -350,6 +357,7 @@ public:
   INLINE bool get_clear_depth_between_eyes() const;
   INLINE int get_target_tex_page() const;
   INLINE bool get_scissor_enabled() const;
+  INLINE Texture *get_shading_rate_texture() const;
   INLINE CallbackObject *get_draw_callback() const;
 
   INLINE void get_pixels(int &pl, int &pr, int &pb, int &pt) const;

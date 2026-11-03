@@ -422,8 +422,27 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
       features2.pNext = &di_features;
     }
 
+    // A shading rate attachment, with dynamic rendering.
+    bool has_fsr_ext =
+      _gpu_properties.apiVersion >= VK_MAKE_VERSION(1, 2, 0) &&
+      has_device_extension(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
+    VkPhysicalDeviceFragmentShadingRateFeaturesKHR fsr_features = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR,
+      features2.pNext,
+    };
+    if (has_fsr_ext) {
+      features2.pNext = &fsr_features;
+    }
+
     pVkGetPhysicalDeviceFeatures2(_gpu, &features2);
     _gpu_features = features2.features;
+    if (has_fsr_ext && fsr_features.attachmentFragmentShadingRate &&
+        fsr_features.pipelineFragmentShadingRate) {
+      VkFormatProperties format_props;
+      vkGetPhysicalDeviceFormatProperties(_gpu, VK_FORMAT_R8_UINT, &format_props);
+      _gpu_supports_fragment_shading_rate =
+        (format_props.optimalTilingFeatures & VK_FORMAT_FEATURE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR) != 0;
+    }
     _gpu_supports_texture_tables =
       _gpu_properties.apiVersion >= VK_MAKE_VERSION(1, 2, 0) &&
       di_features.runtimeDescriptorArray &&
@@ -472,6 +491,7 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
     _gpu_supports_ray_query = false;
     _gpu_supports_ray_position_fetch = false;
     _gpu_supports_mesh_shader = false;
+    _gpu_supports_fragment_shading_rate = false;
     _gpu_supports_texture_tables = false;
     _gpu_supports_texture_table_update_after_bind = false;
   }

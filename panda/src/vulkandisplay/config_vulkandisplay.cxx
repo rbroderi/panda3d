@@ -102,6 +102,13 @@ ConfigVariableInt vulkan_max_texture_table_size
  PRC_DESC("The most textures a TextureTable may hold (fewer if the device "
           "allows fewer)."));
 
+ConfigVariableBool vulkan_fragment_shading_rate
+("vulkan-fragment-shading-rate", true,
+ PRC_DESC("If this is set to true, and the video card supports "
+          "VK_KHR_fragment_shading_rate with a shading rate attachment, a "
+          "DisplayRegion's shading rate texture chooses how finely each block "
+          "of it is shaded."));
+
 // Set once the process is exiting and this library is being unloaded.
 // Libraries are unloaded in the reverse order they were loaded, so by then
 // the Vulkan layers (loaded when the instance was created) have already been

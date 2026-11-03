@@ -364,6 +364,21 @@ reset() {
     _texture_table_update_after_bind = false;
   }
 
+  // VK_KHR_fragment_shading_rate: a shading rate attachment.
+  VkPhysicalDeviceFragmentShadingRateFeaturesKHR fsr_features = {
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR,
+    enabled_features.pNext,
+  };
+  if (pipe->_gpu_supports_fragment_shading_rate && vulkan_fragment_shading_rate) {
+    fsr_features.pipelineFragmentShadingRate = VK_TRUE;
+    fsr_features.attachmentFragmentShadingRate = VK_TRUE;
+    enabled_features.pNext = &fsr_features;
+    extensions.push_back(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
+    _supports_fragment_shading_rate = true;
+  } else {
+    _supports_fragment_shading_rate = false;
+  }
+
   // VK_EXT_mesh_shader: task and mesh shaders.
   VkPhysicalDeviceMeshShaderFeaturesEXT ms_features = {
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
@@ -497,6 +512,33 @@ reset() {
     vulkandisplay_cat.info()
       << "Ray queries are enabled"
       << (_supports_ray_position_fetch ? ", with position fetch.\n" : ".\n");
+  }
+
+  if (_supports_fragment_shading_rate) {
+    VkPhysicalDeviceFragmentShadingRatePropertiesKHR fsr_props = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_PROPERTIES_KHR,
+    };
+    VkPhysicalDeviceProperties2 props2 = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+      &fsr_props,
+    };
+    vkGetPhysicalDeviceProperties2(pipe->_gpu, &props2);
+    // The finest texels the device allows.
+    _fragment_shading_rate_texel_size.set(
+      (int)fsr_props.minFragmentShadingRateAttachmentTexelSize.width,
+      (int)fsr_props.minFragmentShadingRateAttachmentTexelSize.height);
+    _max_fragment_shading_rate.set(
+      (int)fsr_props.maxFragmentSize.width,
+      (int)fsr_props.maxFragmentSize.height);
+
+    vulkandisplay_cat.info()
+      << "Variable-rate shading is enabled: a shading rate texel covers "
+      << _fragment_shading_rate_texel_size[0] << "x" << _fragment_shading_rate_texel_size[1]
+      << " pixels, blocks of up to " << _max_fragment_shading_rate[0] << "x"
+      << _max_fragment_shading_rate[1] << " are shaded once.\n";
+  } else {
+    _fragment_shading_rate_texel_size.set(0, 0);
+    _max_fragment_shading_rate.set(1, 1);
   }
 
   if (_supports_mesh_shader) {
@@ -1695,6 +1737,11 @@ create_texture(VulkanTextureContext *tc) {
     VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     if (fmt_props.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) {
       usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+    }
+    if (format == VK_FORMAT_R8_UINT && _supports_fragment_shading_rate &&
+        texture->get_texture_type() == Texture::TT_2d_texture) {
+      // It may be given as a DisplayRegion's shading rate texture.
+      usage |= VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
     }
 
     render_to_texture = texture->get_render_to_texture();
@@ -4620,6 +4667,19 @@ prepare_display_region(DisplayRegionPipelineReader *dr) {
   nassertv(dr != nullptr);
   GraphicsStateGuardian::prepare_display_region(dr);
 
+  // A region with another shading rate texture (or none) than the pass was
+  // begun with ends it and resumes it with that one.
+  if (_supports_fragment_shading_rate && _rendering_fb != nullptr) {
+    Texture *rate = dr->get_shading_rate_texture();
+    if (rate != _shading_rate_texture) {
+      VulkanFramebuffer *fb = _rendering_fb;
+      DrawableRegion *region = _rendering_region;
+      fb->end_rendering(this);
+      _shading_rate_texture = rate;
+      fb->begin_rendering(this, region, true);
+    }
+  }
+
   int count = dr->get_num_regions();
   VkViewport *viewports = (VkViewport *)alloca(sizeof(VkViewport) * count);
   _viewports.resize(count);
@@ -6831,6 +6891,25 @@ choose_fb_config(FbConfig &out, FrameBufferProperties &props,
 }
 
 /**
+ * Returns the id of the given framebuffer config with a shading rate
+ * attachment added, which pipelines drawn in such a pass must be made for.
+ */
+uint32_t VulkanGraphicsStateGuardian::
+get_shading_rate_fb_config(uint32_t fb_config) {
+  nassertr(fb_config < _fb_configs.size(), fb_config);
+  FbConfig config = _fb_configs[fb_config];
+  config._shading_rate = true;
+  uint32_t id = 0;
+  while (id < _fb_configs.size() && !(_fb_configs[id] == config)) {
+    ++id;
+  }
+  if (id == _fb_configs.size()) {
+    _fb_configs.push_back(std::move(config));
+  }
+  return id;
+}
+
+/**
  * Creates a VkPipeline for the given RenderState+GeomVertexFormat combination.
  */
 VkPipeline VulkanGraphicsStateGuardian::
@@ -7408,6 +7487,19 @@ make_pipeline(VulkanShaderContext *sc,
   pipeline_info.pNext = &render_info;
   render_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
   render_info.pNext = nullptr;
+
+  // Drawn in a pass with a shading rate attachment: its rate replaces the
+  // pipeline's own (one fragment a pixel).
+  VkPipelineFragmentShadingRateStateCreateInfoKHR fsr_info = {
+    VK_STRUCTURE_TYPE_PIPELINE_FRAGMENT_SHADING_RATE_STATE_CREATE_INFO_KHR,
+  };
+  if (fb_config._shading_rate) {
+    pipeline_info.flags |= VK_PIPELINE_CREATE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+    fsr_info.fragmentSize = {1, 1};
+    fsr_info.combinerOps[0] = VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+    fsr_info.combinerOps[1] = VK_FRAGMENT_SHADING_RATE_COMBINER_OP_REPLACE_KHR;
+    render_info.pNext = &fsr_info;
+  }
   render_info.viewMask = 0;
   render_info.colorAttachmentCount = fb_config._color_formats.size();
   render_info.pColorAttachmentFormats = fb_config._color_formats.data();

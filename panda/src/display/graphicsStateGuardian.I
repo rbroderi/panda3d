@@ -657,6 +657,35 @@ get_max_texture_table_size() const {
 }
 
 /**
+ * Returns true if a DisplayRegion may be given a shading rate texture (see
+ * DisplayRegion::set_shading_rate_texture), so that parts of it are shaded
+ * once for a block of pixels (VK_KHR_fragment_shading_rate).
+ */
+INLINE bool GraphicsStateGuardian::
+get_supports_fragment_shading_rate() const {
+  return _supports_fragment_shading_rate;
+}
+
+/**
+ * Returns the number of pixels, across and down, covered by one texel of a
+ * shading rate texture, or (0, 0) if variable-rate shading is not supported.
+ */
+INLINE LVecBase2i GraphicsStateGuardian::
+get_fragment_shading_rate_texel_size() const {
+  return _fragment_shading_rate_texel_size;
+}
+
+/**
+ * Returns the largest block of pixels, across and down, that may be shaded
+ * once: (2, 2) or (4, 4) on most hardware that supports variable-rate
+ * shading, (1, 1) where it is not supported.
+ */
+INLINE LVecBase2i GraphicsStateGuardian::
+get_max_fragment_shading_rate() const {
+  return _max_fragment_shading_rate;
+}
+
+/**
  * Returns true if this particular GSG supports GLSL shaders.
  * @deprecated This is now irrelevant, use get_supports_basic_shaders instead.
  */

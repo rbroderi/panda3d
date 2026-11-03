@@ -149,6 +149,11 @@ begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region,
   vkgsg->_fb_color_tc = nullptr;
   vkgsg->_fb_depth_tc = nullptr;
 
+  // A new pass starts at full rate, till a display region asks otherwise.
+  if (!resume) {
+    vkgsg->_shading_rate_texture = nullptr;
+  }
+
   for (Attachment &attach : _attachments) {
     VulkanTextureContext *tc = attach._tc;
     // Note: <=, not <, because a window deliberately bumps the swapchain image's
@@ -265,9 +270,43 @@ begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region,
     }
   }
 
+  // The shading rate attachment: one texel for a block of pixels, covering
+  // the whole render area.
+  uint32_t config_id = _config_id;
+  VkRenderingFragmentShadingRateAttachmentInfoKHR rate_info = {
+    VK_STRUCTURE_TYPE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_INFO_KHR,
+  };
+  Texture *rate = vkgsg->_shading_rate_texture;
+  if (rate != nullptr) {
+    VulkanTextureContext *rate_tc = vkgsg->use_texture(rate,
+      VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR,
+      VK_PIPELINE_STAGE_2_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR,
+      VK_ACCESS_2_FRAGMENT_SHADING_RATE_ATTACHMENT_READ_BIT_KHR);
+    const LVecBase2i &texel = vkgsg->_fragment_shading_rate_texel_size;
+    if (rate_tc != nullptr && rate_tc->_format == VK_FORMAT_R8_UINT &&
+        rate_tc->_extent.width * texel[0] >= _size[0] &&
+        rate_tc->_extent.height * texel[1] >= _size[1]) {
+      rate_info.imageView = rate_tc->get_image_view(0);
+      rate_info.imageLayout = VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
+      rate_info.shadingRateAttachmentTexelSize.width = texel[0];
+      rate_info.shadingRateAttachmentTexelSize.height = texel[1];
+      render_info.pNext = &rate_info;
+      config_id = vkgsg->get_shading_rate_fb_config(_config_id);
+    } else {
+      static bool warned = false;
+      if (!warned) {
+        warned = true;
+        vulkandisplay_cat.warning()
+          << *rate << " is not a shading rate texture for this region (it must "
+             "be F_r8i, T_unsigned_byte, a texel to " << texel[0] << "x"
+          << texel[1] << " pixels, covering it); shading every pixel.\n";
+      }
+    }
+  }
+
   cmd.flush_barriers();
   vkgsg->_vkCmdBeginRendering(cmd, &render_info);
-  vkgsg->_fb_config = _config_id;
+  vkgsg->_fb_config = config_id;
   vkgsg->_rendering_fb = this;
   vkgsg->_rendering_region = region;
   return true;

@@ -760,7 +760,8 @@ CData(const DisplayRegion::CData &copy) :
   _stereo_channel(copy._stereo_channel),
   _tex_view_offset(copy._tex_view_offset),
   _target_tex_page(copy._target_tex_page),
-  _scissor_enabled(copy._scissor_enabled)
+  _scissor_enabled(copy._scissor_enabled),
+  _shading_rate_texture(copy._shading_rate_texture)
 {
 }
 

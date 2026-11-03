@@ -45,11 +45,16 @@ public:
     VkFormat _stencil_format = VK_FORMAT_UNDEFINED;
     VkSampleCountFlagBits _sample_count = VK_SAMPLE_COUNT_1_BIT;
 
+    // Rendering with a shading rate attachment, which the pipelines must
+    // be made for.
+    bool _shading_rate = false;
+
     bool operator == (const Config &other) const {
       if (_color_formats.size() != other._color_formats.size() ||
           _depth_format != other._depth_format ||
           _stencil_format != other._stencil_format ||
-          _sample_count != other._sample_count) {
+          _sample_count != other._sample_count ||
+          _shading_rate != other._shading_rate) {
         return false;
       }
       for (size_t i = 0; i < _color_formats.size(); ++i) {

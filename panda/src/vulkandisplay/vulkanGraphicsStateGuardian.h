@@ -232,6 +232,7 @@ public:
   typedef VulkanFramebuffer::Config FbConfig;
   uint32_t choose_fb_config(FbConfig &out, FrameBufferProperties &props,
                             VkFormat preferred_format = VK_FORMAT_UNDEFINED);
+  uint32_t get_shading_rate_fb_config(uint32_t fb_config);
 
   VkPipeline make_pipeline(VulkanShaderContext *sc,
                            const VulkanShaderContext::PipelineKey &key);
@@ -455,6 +456,10 @@ private:
   bool _supports_ray_query = false;
   bool _supports_ray_position_fetch = false;
   bool _supports_mesh_shader = false;
+
+  // The shading rate texture of the DisplayRegion being drawn, if any: the
+  // rendering pass is begun with it as its shading rate attachment.
+  PT(Texture) _shading_rate_texture;
   bool _supports_texture_tables = false;
   bool _texture_table_update_after_bind = false;
 

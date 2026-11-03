@@ -90,6 +90,7 @@ public:
   bool _gpu_supports_ray_query = false;
   bool _gpu_supports_ray_position_fetch = false;
   bool _gpu_supports_mesh_shader = false;
+  bool _gpu_supports_fragment_shading_rate = false;
   bool _gpu_supports_texture_tables = false;
   bool _gpu_supports_texture_table_update_after_bind = false;
   VkPhysicalDeviceMemoryProperties _memory_properties;

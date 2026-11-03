@@ -299,6 +299,41 @@ get_scissor_enabled() const {
 }
 
 /**
+ * Sets a texture that chooses, for each block of pixels, how finely this
+ * region is shaded (variable-rate shading, where the GSG's
+ * get_supports_fragment_shading_rate() is true; ignored elsewhere).  Each
+ * texel covers get_fragment_shading_rate_texel_size() pixels; it is an
+ * unsigned 8-bit integer texture (F_r8i, T_unsigned_byte) whose values are
+ * (log2(width) << 2) | log2(height) of the block shaded once: 0 for every
+ * pixel, 5 for 2x2, 10 for 4x4.  Rates above get_max_fragment_shading_rate()
+ * are clamped by the hardware.  The texture may be changed every frame.
+ */
+INLINE void DisplayRegion::
+set_shading_rate_texture(Texture *texture) {
+  CDWriter cdata(_cycler);
+  cdata->_shading_rate_texture = texture;
+}
+
+/**
+ * Removes the shading rate texture: every pixel is shaded.
+ */
+INLINE void DisplayRegion::
+clear_shading_rate_texture() {
+  CDWriter cdata(_cycler);
+  cdata->_shading_rate_texture = nullptr;
+}
+
+/**
+ * Returns the shading rate texture, or null if there is none.  See
+ * set_shading_rate_texture().
+ */
+INLINE Texture *DisplayRegion::
+get_shading_rate_texture() const {
+  CDReader cdata(_cycler);
+  return cdata->_shading_rate_texture;
+}
+
+/**
  * Sets the CallbackObject that will be notified when the DisplayRegion is
  * visited during the cull traversal.  This callback will be made during the
  * cull thread.
@@ -801,6 +836,14 @@ get_target_tex_page() const {
 INLINE bool DisplayRegionPipelineReader::
 get_scissor_enabled() const {
   return _cdata->_scissor_enabled;
+}
+
+/**
+ * Returns the shading rate texture, or null.
+ */
+INLINE Texture *DisplayRegionPipelineReader::
+get_shading_rate_texture() const {
+  return _cdata->_shading_rate_texture;
 }
 
 /**
