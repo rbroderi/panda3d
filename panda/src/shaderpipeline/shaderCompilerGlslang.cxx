@@ -25,9 +25,6 @@
 
 #include <spirv-tools/libspirv.h>
 
-#include <cstring>
-#include <memory>
-
 static const std::string debug_header = "\n\
 #ifndef _PANDA3D_DEBUG_H\n\
 #define _PANDA3D_DEBUG_H\n\
@@ -491,11 +488,12 @@ compile_now(ShaderModule::Stage stage, std::istream &in,
   shader.setPreamble(preamble.c_str());
 
   shader.setEnvClient(glslang::EShClient::EShClientOpenGL, glslang::EShTargetOpenGL_450);
-  // Mesh shading (SPV_EXT_mesh_shader) needs SPIR-V 1.4.
+  // SPIR-V 1.3 (Vulkan 1.1) has subgroup operations; mesh shading
+  // (SPV_EXT_mesh_shader) needs 1.4.
   bool is_mesh_stage = (stage == ShaderModule::Stage::TASK ||
                         stage == ShaderModule::Stage::MESH);
   shader.setEnvTarget(glslang::EShTargetSpv,
-                      is_mesh_stage ? glslang::EShTargetSpv_1_4 : glslang::EShTargetSpv_1_0);
+                      is_mesh_stage ? glslang::EShTargetSpv_1_4 : glslang::EShTargetSpv_1_3);
 
   if (options.has_entry_point()) {
     shader.setSourceEntryPoint(options.get_entry_point().c_str());
@@ -507,41 +505,14 @@ compile_now(ShaderModule::Stage stage, std::istream &in,
   shader.setAutoMapLocations(true);
 
   Includer includer(options.get_include_path(), record);
-  bool parsed = shader.parse(GetDefaultResources(), 110, false, messages, includer);
-
-  // Subgroup operations need SPIR-V 1.3.  A GL driver that loads SPIR-V
-  // itself need only take 1.0, so only a shader that needs 1.3 is parsed
-  // again for it.
-  glslang::TShader *result = &shader;
-  std::unique_ptr<glslang::TShader> retry;
-  if (!parsed && !is_cg && !is_mesh_stage &&
-      strstr(shader.getInfoLog(), "requires SPIR-V 1.3") != nullptr) {
-    retry.reset(new glslang::TShader(language));
-    retry->setStringsWithLengthsAndNames(&string, &length, &fname, 1);
-    retry->setEntryPoint("main");
-    retry->setPreamble(preamble.c_str());
-    retry->setEnvInput(glslang::EShSource::EShSourceGlsl, language, glslang::EShClient::EShClientOpenGL, 450);
-    retry->setEnvClient(glslang::EShClient::EShClientOpenGL, glslang::EShTargetOpenGL_450);
-    retry->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_3);
-    if (options.has_entry_point()) {
-      retry->setSourceEntryPoint(options.get_entry_point().c_str());
-    }
-    retry->setAutoMapBindings(true);
-    retry->setAutoMapLocations(true);
-
-    Includer retry_includer(options.get_include_path(), record);
-    parsed = retry->parse(GetDefaultResources(), 110, false, messages, retry_includer);
-    result = retry.get();
-  }
-
-  if (!parsed) {
+  if (!shader.parse(GetDefaultResources(), 110, false, messages, includer)) {
     if (output_log != nullptr) {
-      *output_log << result->getInfoLog();
+      *output_log << shader.getInfoLog();
     }
     if (!options.get_suppress_log()) {
       shader_cat.error()
         << "Failed to parse " << filename << ":\n"
-        << result->getInfoLog();
+        << shader.getInfoLog();
     }
     return nullptr;
   }
@@ -552,7 +523,7 @@ compile_now(ShaderModule::Stage stage, std::istream &in,
   ShaderModuleSpirV::InstructionStream stream;
   {
     glslang::TProgram program;
-    program.addShader(result);
+    program.addShader(&shader);
     if (!program.link(messages)) {
       shader_cat.error()
         << "Failed to link " << filename << ":\n"
@@ -603,9 +574,7 @@ compile_now(ShaderModule::Stage stage, std::istream &in,
   // Run it through the optimizer.
   std::vector<uint32_t> optimized;
   if (is_cg || options.get_optimize() != CompilerOptions::Optimize::NONE) {
-    spv_optimizer_t *opt = spvOptimizerCreate(is_mesh_stage ? SPV_ENV_UNIVERSAL_1_4 :
-                                              retry != nullptr ? SPV_ENV_UNIVERSAL_1_3 :
-                                                                 SPV_ENV_UNIVERSAL_1_0);
+    spv_optimizer_t *opt = spvOptimizerCreate(is_mesh_stage ? SPV_ENV_UNIVERSAL_1_4 : SPV_ENV_UNIVERSAL_1_3);
     spvOptimizerSetMessageConsumer(opt, log_message);
 
     switch (options.get_optimize()) {
