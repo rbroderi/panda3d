@@ -4689,7 +4689,9 @@ prepare_display_region(DisplayRegionPipelineReader *dr) {
 
   for (int i = 0; i < count; ++i) {
     int x, y, w, h;
-    dr->get_region_pixels(i, x, y, w, h);
+    // Vulkan counts framebuffer rows from the top, as get_region_pixels_i
+    // does; get_region_pixels counts them from the bottom, OpenGL's way.
+    dr->get_region_pixels_i(i, x, y, w, h);
     viewports[i].x = x;
     viewports[i].y = y;
     viewports[i].width = w;
@@ -6431,7 +6433,9 @@ do_issue_depth_range(const DepthOffsetAttrib *target_depth_offset) {
 
   for (int i = 0; i < count; ++i) {
     int x, y, w, h;
-    dr->get_region_pixels(i, x, y, w, h);
+    // Vulkan counts framebuffer rows from the top, as get_region_pixels_i
+    // does; get_region_pixels counts them from the bottom, OpenGL's way.
+    dr->get_region_pixels_i(i, x, y, w, h);
     viewports[i].x = x;
     viewports[i].y = y;
     viewports[i].width = w;
