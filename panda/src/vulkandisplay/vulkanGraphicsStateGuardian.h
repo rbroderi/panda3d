@@ -210,6 +210,10 @@ public:
   VkDeviceAddress create_scratch_buffer(VkDeviceSize size);
   bool create_buffer(VkDeviceSize size, VkBuffer &buffer, VulkanMemoryBlock &block,
                      int usage_flags, VulkanMemoryPolicy policy);
+  int geom_buffer_usage(int usage_flags) const;
+  bool regrow_geom_buffer(VkDeviceSize size, VkBuffer &buffer,
+                          VulkanMemoryBlock &block, int usage_flags,
+                          GeomEnums::UsageHint usage_hint);
   bool create_image(VulkanTextureContext *tc, VkImageType type, VkFormat format,
                     const VkExtent3D &extent, uint32_t levels, uint32_t layers,
                     VkSampleCountFlagBits samples, VkImageUsageFlags usage,

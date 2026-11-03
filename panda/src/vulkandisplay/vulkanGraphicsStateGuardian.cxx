@@ -2772,12 +2772,7 @@ prepare_vertex_buffer(GeomVertexArrayData *array_data) {
   VulkanMemoryPolicy policy = (array_data->get_usage_hint() == GeomEnums::UH_stream)
                             ? MP_stream_retained : MP_retained;
 
-  // With ray queries on, a mesh's structure may be built straight from it.
-  int usage_flags = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-  if (_supports_ray_query) {
-    usage_flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
-                   VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-  }
+  int usage_flags = geom_buffer_usage(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 
   VkBuffer buffer;
   VulkanMemoryBlock block;
@@ -2813,6 +2808,19 @@ update_vertex_buffer(VulkanVertexBufferContext *vbc,
       const unsigned char *client_pointer = reader->get_read_pointer(force);
       if (client_pointer == nullptr) {
         return false;
+      }
+
+      if (num_bytes > (VkDeviceSize)vbc->get_data_size_bytes()) {
+        // The array has grown past the buffer made for it.
+        if (!regrow_geom_buffer(num_bytes, vbc->_buffer, vbc->_block,
+                                geom_buffer_usage(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT),
+                                reader->get_usage_hint())) {
+          vulkandisplay_cat.error()
+            << "Failed to grow vertex buffer.\n";
+          return false;
+        }
+        vbc->update_data_size_bytes(num_bytes);
+        vbc->_last_use_frame = 0;
       }
 
       bool use_staging_buffer = true;
@@ -2887,6 +2895,47 @@ update_vertex_buffer(VulkanVertexBufferContext *vbc,
 }
 
 /**
+ * Returns the usage flags of a vertex or index buffer: the given ones, and
+ * those for filling it by copying and, with ray queries on, for building a
+ * mesh's structure straight from it.
+ */
+int VulkanGraphicsStateGuardian::
+geom_buffer_usage(int usage_flags) const {
+  usage_flags |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  if (_supports_ray_query) {
+    usage_flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+                   VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+  }
+  return usage_flags;
+}
+
+/**
+ * Replaces a vertex or index buffer that its data has outgrown with one of
+ * the given size.  The old buffer is destroyed once the frames that may still
+ * draw from it are done.  Its contents are not copied: the caller fills the
+ * new one.
+ */
+bool VulkanGraphicsStateGuardian::
+regrow_geom_buffer(VkDeviceSize size, VkBuffer &buffer, VulkanMemoryBlock &block,
+                   int usage_flags, GeomEnums::UsageHint usage_hint) {
+  VulkanMemoryPolicy policy = (usage_hint == GeomEnums::UH_stream)
+                            ? MP_stream_retained : MP_retained;
+
+  VkBuffer new_buffer;
+  VulkanMemoryBlock new_block;
+  if (!create_buffer(size, new_buffer, new_block, usage_flags, policy)) {
+    return false;
+  }
+
+  VulkanFrameData &frame_data = get_frame_data();
+  frame_data._pending_destroy_buffers.push_back(buffer);
+  frame_data._pending_free.push_back(std::move(block));
+  buffer = new_buffer;
+  block = std::move(new_block);
+  return true;
+}
+
+/**
  * Frees the resources previously allocated via a call to prepare_data(),
  * including deleting the VertexBufferContext itself, if necessary.
  */
@@ -2930,12 +2979,7 @@ prepare_index_buffer(GeomPrimitive *primitive) {
   VulkanMemoryPolicy policy = (primitive->get_usage_hint() == GeomEnums::UH_stream)
                             ? MP_stream_retained : MP_retained;
 
-  // With ray queries on, a mesh's structure may be built straight from it.
-  int usage_flags = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-  if (_supports_ray_query) {
-    usage_flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
-                   VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-  }
+  int usage_flags = geom_buffer_usage(VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 
   VkBuffer buffer;
   VulkanMemoryBlock block;
@@ -2991,6 +3035,23 @@ update_index_buffer(VulkanIndexBufferContext *ibc,
         vulkandisplay_cat.error()
           << "Unsupported index type: " << index_type;
         return false;
+      }
+
+      // Indices past 65535 widen a primitive's index type as they are added.
+      ibc->_index_type = (index_type == GeomEnums::NT_uint32)
+                       ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16;
+
+      if (num_bytes > (VkDeviceSize)ibc->get_data_size_bytes()) {
+        // The primitive has grown past the buffer made for it.
+        if (!regrow_geom_buffer(num_bytes, ibc->_buffer, ibc->_block,
+                                geom_buffer_usage(VK_BUFFER_USAGE_INDEX_BUFFER_BIT),
+                                reader->get_usage_hint())) {
+          vulkandisplay_cat.error()
+            << "Failed to grow index buffer.\n";
+          return false;
+        }
+        ibc->update_data_size_bytes(num_bytes);
+        ibc->_last_use_frame = 0;
       }
 
       bool use_staging_buffer = true;
