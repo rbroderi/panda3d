@@ -91,6 +91,17 @@ ConfigVariableBool vulkan_mesh_shader
           "shaders (VK_EXT_mesh_shader), they are enabled, so that a "
           "MeshDrawNode can draw with a shader made by Shader.make_mesh()."));
 
+ConfigVariableBool vulkan_texture_tables
+("vulkan-texture-tables", true,
+ PRC_DESC("If this is set to true, and the video card supports descriptor "
+          "indexing (core in Vulkan 1.2), a shader may index an unsized "
+          "array of textures given as a TextureTable."));
+
+ConfigVariableInt vulkan_max_texture_table_size
+("vulkan-max-texture-table-size", 16384,
+ PRC_DESC("The most textures a TextureTable may hold (fewer if the device "
+          "allows fewer)."));
+
 // Set once the process is exiting and this library is being unloaded.
 // Libraries are unloaded in the reverse order they were loaded, so by then
 // the Vulkan layers (loaded when the instance was created) have already been

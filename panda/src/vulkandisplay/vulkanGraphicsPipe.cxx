@@ -414,8 +414,25 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
       features2.pNext = &ms_features;
     }
 
+    VkPhysicalDeviceDescriptorIndexingFeatures di_features = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
+      features2.pNext,
+    };
+    if (_gpu_properties.apiVersion >= VK_MAKE_VERSION(1, 2, 0)) {
+      features2.pNext = &di_features;
+    }
+
     pVkGetPhysicalDeviceFeatures2(_gpu, &features2);
     _gpu_features = features2.features;
+    _gpu_supports_texture_tables =
+      _gpu_properties.apiVersion >= VK_MAKE_VERSION(1, 2, 0) &&
+      di_features.runtimeDescriptorArray &&
+      di_features.shaderSampledImageArrayNonUniformIndexing &&
+      di_features.descriptorBindingPartiallyBound &&
+      di_features.descriptorBindingVariableDescriptorCount;
+    _gpu_supports_texture_table_update_after_bind = _gpu_supports_texture_tables &&
+      di_features.descriptorBindingSampledImageUpdateAfterBind &&
+      di_features.descriptorBindingUpdateUnusedWhilePending;
     _gpu_supports_mesh_shader = has_mesh_shader_ext
                              && ms_features.meshShader
                              && ms_features.taskShader;
@@ -455,6 +472,8 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
     _gpu_supports_ray_query = false;
     _gpu_supports_ray_position_fetch = false;
     _gpu_supports_mesh_shader = false;
+    _gpu_supports_texture_tables = false;
+    _gpu_supports_texture_table_update_after_bind = false;
   }
 
   // Default the maximum allocation size to the largest of the heaps.

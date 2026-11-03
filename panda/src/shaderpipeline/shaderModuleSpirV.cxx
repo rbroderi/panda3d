@@ -131,6 +131,10 @@ ShaderModuleSpirV(Stage stage, std::vector<uint32_t> words, const CompilerOption
         _used_caps |= C_mesh_shader;
         break;
 
+      case spv::CapabilityRuntimeDescriptorArray:
+        _used_caps |= C_texture_table;
+        break;
+
       default:
         break;
       }
@@ -200,9 +204,14 @@ ShaderModuleSpirV(Stage stage, std::vector<uint32_t> words, const CompilerOption
         continue;
       }
 
-      // Ignore empty structs/arrays.
+      // Ignore empty structs/arrays, but not an unsized array of textures
+      // (a TextureTable), which has no size.
       int num_locations = def._type->get_num_interface_locations();
-      if (num_locations == 0) {
+      const ShaderType::Array *array_type = def._type->as_array();
+      bool unsized_opaque = array_type != nullptr &&
+                            array_type->get_num_elements() == 0 &&
+                            array_type->get_element_type()->contains_opaque_type();
+      if (num_locations == 0 && !unsized_opaque) {
         continue;
       }
 

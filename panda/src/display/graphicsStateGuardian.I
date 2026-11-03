@@ -638,6 +638,25 @@ get_supports_mesh_shaders() const {
 }
 
 /**
+ * Returns true if a shader can index an unsized array of textures, given as a
+ * TextureTable (GL_EXT_nonuniform_qualifier), false otherwise.  Only the
+ * Vulkan renderer can, where descriptor indexing is supported.
+ */
+INLINE bool GraphicsStateGuardian::
+get_supports_texture_tables() const {
+  return (_supported_shader_caps & ShaderModule::C_texture_table) != 0;
+}
+
+/**
+ * Returns the largest number of textures a TextureTable may hold, or 0 if
+ * texture tables are not supported.
+ */
+INLINE int GraphicsStateGuardian::
+get_max_texture_table_size() const {
+  return _max_texture_table_size;
+}
+
+/**
  * Returns true if this particular GSG supports GLSL shaders.
  * @deprecated This is now irrelevant, use get_supports_basic_shaders instead.
  */

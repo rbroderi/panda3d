@@ -50,6 +50,7 @@
 #include "textureContext.h"
 #include "rayTraceMesh.h"
 #include "rayTraceScene.h"
+#include "textureTable.h"
 #include "samplerContext.h"
 #include "samplerState.h"
 #include "shader.h"
@@ -594,6 +595,7 @@ ConfigureFn(config_gobj) {
   QueryContext::init_type();
   RayTraceMesh::init_type();
   RayTraceScene::init_type();
+  TextureTable::init_type();
   SamplerContext::init_type();
   SamplerState::init_type();
   Shader::init_type();

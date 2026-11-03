@@ -23,6 +23,7 @@
 #include "circularAllocator.h"
 #include "completionToken.h"
 #include "rayTraceScene.h"
+#include "textureTable.h"
 
 class VulkanBufferContext;
 class VulkanGraphicsPipe;
@@ -251,8 +252,15 @@ public:
     // This one is used for other shader inputs and uses dynamic offsets.
     DS_dynamic_uniforms = 4,
 
-    DS_SET_COUNT = 5,
+    // A shader's TextureTable, if it has one: one unsized array of textures.
+    // Only shaders with a table have this set.
+    DS_texture_table = 5,
+
+    DS_SET_COUNT = 6,
   };
+
+  VkDescriptorSet get_texture_table_descriptor_set(VulkanShaderContext *sc);
+  bool update_texture_table(TextureTable *table, VulkanBufferContext *bc);
 
   bool get_attrib_descriptor_set(VkDescriptorSet &out,
                                  VulkanShaderContext::AttribDescriptorSetMap &map,
@@ -447,6 +455,14 @@ private:
   bool _supports_ray_query = false;
   bool _supports_ray_position_fetch = false;
   bool _supports_mesh_shader = false;
+  bool _supports_texture_tables = false;
+  bool _texture_table_update_after_bind = false;
+
+  // Every shader's TextureTable set has this layout, visible to every stage;
+  // a shader with a table input given none binds the empty set.
+  VkDescriptorSetLayout _texture_table_layout = VK_NULL_HANDLE;
+  VkDescriptorPool _empty_texture_table_pool = VK_NULL_HANDLE;
+  VkDescriptorSet _empty_texture_table_set = VK_NULL_HANDLE;
 
   // The stages the push constants are visible to: every graphics stage,
   // including task and mesh where mesh shaders are enabled.

@@ -53,6 +53,17 @@ public:
   // reading the buffer's own memory directly is impossible or too slow.
   bool _direct_readback = false;
 
+  // Used for a TextureTable: its descriptor set, in a pool of its own, room
+  // for _table_capacity textures of which the first _table_written are
+  // written, as described by _table_infos, from the table as of _table_seq.
+  VkDescriptorPool _table_pool = VK_NULL_HANDLE;
+  VkDescriptorSet _table_set = VK_NULL_HANDLE;
+  uint32_t _table_capacity = 0;
+  uint32_t _table_written = 0;
+  UpdateSeq _table_seq;
+  uint64_t _table_frame = 0;
+  pvector<VkDescriptorImageInfo> _table_infos;
+
   // Used for shader buffers.
   VkAccessFlags2 _write_access_mask = 0;
   VkPipelineStageFlags2 _write_stage_mask = 0;

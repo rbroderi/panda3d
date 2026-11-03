@@ -213,6 +213,12 @@ private:
 
   bool _uses_lattr_descriptors = false;
 
+  // The TextureTable input (an unsized array of samplers), if any; then the
+  // pipeline layout has DS_SET_COUNT sets, else one fewer.
+  PT(ShaderInputBinding) _texture_table_binding;
+  CPT_InternalName _texture_table_name;
+  uint32_t _num_descriptor_sets = 5;
+
   VkDescriptorSet _uniform_descriptor_set = VK_NULL_HANDLE;
   VkBuffer _uniform_buffer = VK_NULL_HANDLE;
   uint32_t _dynamic_uniform_offset = 0;

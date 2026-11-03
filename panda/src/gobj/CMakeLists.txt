@@ -50,6 +50,7 @@ set(P3GOBJ_HEADERS
   shader.I shader.h
   rayTraceMesh.h rayTraceMesh.I
   rayTraceScene.h
+  textureTable.h
   shaderBuffer.h shaderBuffer.I
   shaderCompiler.h
   shaderCompilerRegistry.h
@@ -138,6 +139,7 @@ set(P3GOBJ_SOURCES
   shader.cxx
   rayTraceMesh.cxx
   rayTraceScene.cxx
+  textureTable.cxx
   shaderBuffer.cxx
   shaderCompiler.cxx
   shaderCompilerRegistry.cxx

@@ -18,6 +18,7 @@
 #include "notifyCategoryProxy.h"
 #include "configVariableBool.h"
 #include "configVariableInt64.h"
+#include "configVariableInt.h"
 
 NotifyCategoryDecl(vulkandisplay, EXPCL_VULKANDISPLAY, EXPTP_VULKANDISPLAY);
 
@@ -28,6 +29,8 @@ extern ConfigVariableBool vulkan_support_custom_border_color;
 extern ConfigVariableBool vulkan_validation;
 extern ConfigVariableBool vulkan_ray_query;
 extern ConfigVariableBool vulkan_mesh_shader;
+extern ConfigVariableBool vulkan_texture_tables;
+extern ConfigVariableInt vulkan_max_texture_table_size;
 extern bool vulkan_process_exiting;
 
 extern EXPCL_VULKANDISPLAY void init_libvulkandisplay();

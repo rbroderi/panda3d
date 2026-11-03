@@ -153,6 +153,10 @@ PUBLISHED:
 
     // Task and mesh shaders (GL_EXT_mesh_shader; Vulkan only)
     C_mesh_shader = 1ull << 46,
+
+    // An unsized array of textures, indexed freely (GL_EXT_nonuniform_qualifier
+    // with a TextureTable; Vulkan only)
+    C_texture_table = 1ull << 47,
   };
 
   enum Dependency {

@@ -211,6 +211,9 @@ output_capabilities(std::ostream &out, uint64_t caps) {
   if (caps & C_mesh_shader) {
     out << "mesh_shader ";
   }
+  if (caps & C_texture_table) {
+    out << "texture_table ";
+  }
 }
 
 /**

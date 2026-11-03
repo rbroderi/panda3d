@@ -239,6 +239,31 @@ create_modules(VulkanGraphicsStateGuardian *gsg) {
       continue;
     }
 
+    // An unsized array of samplers is a TextureTable, in a set of its own.
+    if (const ShaderType::Array *array = param._type->as_array()) {
+      if (array->get_num_elements() == 0 &&
+          array->get_element_type()->as_sampled_image() != nullptr) {
+        if (_texture_table_binding != nullptr) {
+          vulkandisplay_cat.error()
+            << "Shader " << _shader->get_debug_name() << " has more than one "
+               "unsized array of textures; only " << *_texture_table_name
+            << " is bound.\n";
+          continue;
+        }
+        if (!gsg->_supports_texture_tables) {
+          vulkandisplay_cat.error()
+            << "Shader " << _shader->get_debug_name() << " indexes an unsized "
+               "array of textures, " << *param._name << ", but texture tables "
+               "are not supported on this device.\n";
+          return false;
+        }
+        _texture_table_binding = param._binding;
+        _texture_table_name = param._name;
+        _num_descriptor_sets = VulkanGraphicsStateGuardian::DS_SET_COUNT;
+        continue;
+      }
+    }
+
     AccessChain chain(pi);
     pmap<AccessChain, Descriptor> descriptors;
     int num_resources = 0;
@@ -570,6 +595,14 @@ create_modules(VulkanGraphicsStateGuardian *gsg) {
       transformer.run(SpirVMakeBlockPass(shader_input_block_type->as_struct(),
                                          ids, spv::StorageClassUniform,
                                          0, VulkanGraphicsStateGuardian::DS_shader_attrib));
+    }
+
+    if (_texture_table_binding != nullptr) {
+      int index = spv_module->find_parameter(_texture_table_name);
+      if (index >= 0) {
+        transformer.bind_descriptor_set(VulkanGraphicsStateGuardian::DS_texture_table,
+                                        {spv_module->get_parameter(index).id});
+      }
     }
 
     // Bind the textures to the desired descriptor sets.

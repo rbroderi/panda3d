@@ -167,6 +167,8 @@ PUBLISHED:
   INLINE bool get_supports_ray_query() const;
   INLINE bool get_supports_ray_query_position_fetch() const;
   INLINE bool get_supports_mesh_shaders() const;
+  INLINE bool get_supports_texture_tables() const;
+  INLINE int get_max_texture_table_size() const;
   INLINE bool get_supports_glsl() const;
   INLINE bool get_supports_hlsl() const;
   INLINE bool get_supports_stencil() const;
@@ -226,6 +228,8 @@ PUBLISHED:
   MAKE_PROPERTY(supports_ray_query, get_supports_ray_query);
   MAKE_PROPERTY(supports_ray_query_position_fetch, get_supports_ray_query_position_fetch);
   MAKE_PROPERTY(supports_mesh_shaders, get_supports_mesh_shaders);
+  MAKE_PROPERTY(supports_texture_tables, get_supports_texture_tables);
+  MAKE_PROPERTY(max_texture_table_size, get_max_texture_table_size);
   MAKE_PROPERTY(supports_glsl, get_supports_glsl);
   MAKE_PROPERTY(supports_hlsl, get_supports_hlsl);
   MAKE_PROPERTY(supports_stencil, get_supports_stencil);
@@ -652,6 +656,8 @@ protected:
   LVecBase3i _max_compute_work_group_count;
   LVecBase3i _max_compute_work_group_size;
   int _max_compute_work_group_invocations;
+
+  int _max_texture_table_size = 0;
 
   bool _supports_stencil;
   bool _supports_stencil_wrap;

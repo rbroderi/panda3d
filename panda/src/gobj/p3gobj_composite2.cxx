@@ -4,6 +4,7 @@
 #include "queryContext.cxx"
 #include "rayTraceMesh.cxx"
 #include "rayTraceScene.cxx"
+#include "textureTable.cxx"
 #include "samplerContext.cxx"
 #include "samplerState.cxx"
 #include "savedContext.cxx"

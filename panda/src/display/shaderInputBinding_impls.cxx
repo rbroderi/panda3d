@@ -464,6 +464,14 @@ make_shader_input(const ShaderType *type, CPT_InternalName name) {
     }
   }
 
+  // An unsized array of samplers takes a TextureTable, a kind of ShaderBuffer.
+  if (const ShaderType::Array *array = type->as_array()) {
+    if (array->get_num_elements() == 0 &&
+        array->get_element_type()->as_sampled_image() != nullptr) {
+      return new ShaderBufferBinding(name, 0);
+    }
+  }
+
   if (struct_type != nullptr || type->as_array() != nullptr) {
     return new ShaderAggregateBinding(name, type);
   }

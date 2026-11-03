@@ -345,6 +345,25 @@ reset() {
     _supports_ray_position_fetch = false;
   }
 
+  // Descriptor indexing (core in 1.2), for texture tables.
+  if (pipe->_gpu_supports_texture_tables && vulkan_texture_tables &&
+      limits.maxBoundDescriptorSets > DS_texture_table) {
+    v_1_2_features.descriptorIndexing = VK_TRUE;
+    v_1_2_features.runtimeDescriptorArray = VK_TRUE;
+    v_1_2_features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+    v_1_2_features.descriptorBindingPartiallyBound = VK_TRUE;
+    v_1_2_features.descriptorBindingVariableDescriptorCount = VK_TRUE;
+    _supports_texture_tables = true;
+    _texture_table_update_after_bind = pipe->_gpu_supports_texture_table_update_after_bind;
+    if (_texture_table_update_after_bind) {
+      v_1_2_features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+      v_1_2_features.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
+    }
+  } else {
+    _supports_texture_tables = false;
+    _texture_table_update_after_bind = false;
+  }
+
   // VK_EXT_mesh_shader: task and mesh shaders.
   VkPhysicalDeviceMeshShaderFeaturesEXT ms_features = {
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
@@ -497,6 +516,69 @@ reset() {
       << " vertices and " << ms_props.maxMeshOutputPrimitives
       << " primitives a mesh workgroup, " << ms_props.maxTaskPayloadSize
       << " bytes of task payload.\n";
+  }
+
+  if (_supports_texture_tables) {
+    // How many textures a table may hold: the device's limit (with update
+    // after bind, its own, larger one), leaving room for other textures.
+    VkPhysicalDeviceDescriptorIndexingProperties di_props = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES,
+    };
+    VkPhysicalDeviceProperties2 props2 = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+      &di_props,
+    };
+    vkGetPhysicalDeviceProperties2(pipe->_gpu, &props2);
+    uint64_t limit = _texture_table_update_after_bind
+      ? std::min(di_props.maxPerStageDescriptorUpdateAfterBindSampledImages,
+                 di_props.maxDescriptorSetUpdateAfterBindSampledImages)
+      : std::min(limits.maxPerStageDescriptorSampledImages,
+                 limits.maxDescriptorSetSampledImages);
+    limit = (limit > 64) ? limit - 64 : 0;
+    _max_texture_table_size = (int)std::min(limit, (uint64_t)std::max(0, (int)vulkan_max_texture_table_size));
+
+    VkDescriptorBindingFlags binding_flags =
+      VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
+      VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT;
+    if (_texture_table_update_after_bind) {
+      binding_flags |= VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT |
+                       VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT;
+    }
+    VkDescriptorSetLayoutBindingFlagsCreateInfo flags_info = {
+      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+    };
+    flags_info.bindingCount = 1;
+    flags_info.pBindingFlags = &binding_flags;
+
+    VkDescriptorSetLayoutBinding binding;
+    binding.binding = 0;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    binding.descriptorCount = (uint32_t)_max_texture_table_size;
+    binding.stageFlags = _push_constant_stages | VK_SHADER_STAGE_COMPUTE_BIT;
+    binding.pImmutableSamplers = nullptr;
+
+    VkDescriptorSetLayoutCreateInfo set_info = {
+      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+      &flags_info,
+    };
+    if (_texture_table_update_after_bind) {
+      set_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+    }
+    set_info.bindingCount = 1;
+    set_info.pBindings = &binding;
+    err = vkCreateDescriptorSetLayout(_device, &set_info, nullptr, &_texture_table_layout);
+    if (err) {
+      vulkan_error(err, "Failed to create descriptor set layout for texture tables");
+      _supports_texture_tables = false;
+      _max_texture_table_size = 0;
+    } else {
+      vulkandisplay_cat.info()
+        << "Texture tables are enabled: up to " << _max_texture_table_size
+        << " textures"
+        << (_texture_table_update_after_bind ? ", updated after bind.\n" : ".\n");
+    }
+  } else {
+    _max_texture_table_size = 0;
   }
 
   // Create a command pool to allocate command buffers from.
@@ -889,6 +971,9 @@ reset() {
   if (_supports_mesh_shader) {
     _supported_shader_caps |= Shader::C_mesh_shader;
   }
+  if (_supports_texture_tables) {
+    _supported_shader_caps |= Shader::C_texture_table;
+  }
 
   if (features.shaderCullDistance) {
     _supported_shader_caps |= Shader::C_cull_distance;
@@ -994,6 +1079,15 @@ destroy_device() {
   vkDestroyBuffer(_device, _uniform_buffer, nullptr);
   vkDestroyDescriptorSetLayout(_device, _global_descriptor_set_layout, nullptr);
   vkDestroyDescriptorSetLayout(_device, _lattr_descriptor_set_layout, nullptr);
+  if (_texture_table_layout != VK_NULL_HANDLE) {
+    vkDestroyDescriptorSetLayout(_device, _texture_table_layout, nullptr);
+    _texture_table_layout = VK_NULL_HANDLE;
+  }
+  if (_empty_texture_table_pool != VK_NULL_HANDLE) {
+    vkDestroyDescriptorPool(_device, _empty_texture_table_pool, nullptr);
+    _empty_texture_table_pool = VK_NULL_HANDLE;
+    _empty_texture_table_set = VK_NULL_HANDLE;
+  }
   vkDestroyDescriptorPool(_device, _descriptor_pool, nullptr);
   for (VkDescriptorPool pool : _full_descriptor_pools) {
     vkDestroyDescriptorPool(_device, pool, nullptr);
@@ -2432,6 +2526,9 @@ prepare_shader(Shader *shader) {
   // Create the pipeline layout.  We use a predetermined number of sets, with
   // specific sets corresponding to different render attributes.
   VkDescriptorSetLayout ds_layouts[DS_SET_COUNT] = {};
+  if (sc->_texture_table_binding != nullptr) {
+    ds_layouts[DS_texture_table] = _texture_table_layout;
+  }
   ds_layouts[DS_global] = _global_descriptor_set_layout;
   ds_layouts[DS_light_attrib] = _lattr_descriptor_set_layout;
   ds_layouts[DS_texture_attrib] = sc->make_texture_attrib_descriptor_set_layout(_device);
@@ -2453,7 +2550,7 @@ prepare_shader(Shader *shader) {
   layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   layout_info.pNext = nullptr;
   layout_info.flags = 0;
-  layout_info.setLayoutCount = DS_SET_COUNT;
+  layout_info.setLayoutCount = sc->_num_descriptor_sets;
   layout_info.pSetLayouts = ds_layouts;
   layout_info.pushConstantRangeCount = 2;
   layout_info.pPushConstantRanges = ranges;
@@ -2876,6 +2973,18 @@ BufferContext *VulkanGraphicsStateGuardian::
 prepare_shader_buffer(ShaderBuffer *data) {
   PStatTimer timer(_prepare_shader_buffer_pcollector);
 
+  if (data->is_of_type(TextureTable::get_class_type())) {
+    // Its descriptor set is made when it's first used.
+    if (!_supports_texture_tables) {
+      vulkandisplay_cat.error()
+        << "Cannot use " << *data << ": texture tables are not supported.\n";
+      return nullptr;
+    }
+    VulkanBufferContext *bc = new VulkanBufferContext(_prepared_objects, data);
+    bc->_buffer = VK_NULL_HANDLE;
+    return bc;
+  }
+
   if (data->is_of_type(RayTraceScene::get_class_type())) {
     // The structure is built when it's first used.
     if (!_supports_ray_query) {
@@ -2986,6 +3095,9 @@ release_shader_buffer(BufferContext *context) {
 
   if (bc->_acceleration_structure != VK_NULL_HANDLE) {
     _frame_data->_pending_destroy_acceleration_structures.push_back(bc->_acceleration_structure);
+  }
+  if (bc->_table_pool != VK_NULL_HANDLE) {
+    _frame_data->_pending_destroy_descriptor_pools.push_back(bc->_table_pool);
   }
   _frame_data->_pending_destroy_buffers.push_back(bc->_buffer);
   _frame_data->_pending_free.push_back(std::move(bc->_block));
@@ -4240,10 +4352,194 @@ set_state_and_transform(const RenderState *state,
 
   _state_rs = state;
 
+  if (sc->_texture_table_binding != nullptr) {
+    descriptor_sets[DS_texture_table] = get_texture_table_descriptor_set(sc);
+  }
+
   PStatTimer timer2(_bind_descriptor_sets_pcollector);
   vkCmdBindDescriptorSets(cmd, sc->_bind_point, sc->_pipeline_layout,
-                          first_set, DS_SET_COUNT - first_set, descriptor_sets + first_set,
-                          num_offsets, &offset);
+                          first_set, sc->_num_descriptor_sets - first_set,
+                          descriptor_sets + first_set, num_offsets, &offset);
+}
+
+/**
+ * Returns the descriptor set of the TextureTable given to the shader's table
+ * input, brought up to date, or an empty set if it was given none.
+ */
+VkDescriptorSet VulkanGraphicsStateGuardian::
+get_texture_table_descriptor_set(VulkanShaderContext *sc) {
+  ShaderInputBinding::State state;
+  state.gsg = this;
+  ShaderInputBinding *binding = sc->_texture_table_binding;
+  PT(ShaderBuffer) buffer = binding->fetch_shader_buffer(state, binding->get_resource_id(0));
+
+  if (buffer != nullptr && buffer->is_of_type(TextureTable::get_class_type())) {
+    VulkanBufferContext *bc;
+    DCAST_INTO_R(bc, buffer->prepare_now(get_prepared_objects(), this), VK_NULL_HANDLE);
+    if (update_texture_table((TextureTable *)buffer.p(), bc)) {
+      return bc->_table_set;
+    }
+  }
+  else if (buffer != nullptr) {
+    vulkandisplay_cat.error()
+      << *buffer << " is not a TextureTable\n";
+  }
+
+  if (_empty_texture_table_set == VK_NULL_HANDLE) {
+    // A set of one unwritten texture, for a table input given none.
+    VkDescriptorPoolSize size = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
+    VkDescriptorPoolCreateInfo pool_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    pool_info.flags = _texture_table_update_after_bind ? VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT : 0;
+    pool_info.maxSets = 1;
+    pool_info.poolSizeCount = 1;
+    pool_info.pPoolSizes = &size;
+    VkResult err = vkCreateDescriptorPool(_device, &pool_info, nullptr, &_empty_texture_table_pool);
+    if (err) {
+      vulkan_error(err, "Failed to create descriptor pool for an empty texture table");
+      return VK_NULL_HANDLE;
+    }
+    uint32_t count = 1;
+    VkDescriptorSetVariableDescriptorCountAllocateInfo count_info = {
+      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO,
+    };
+    count_info.descriptorSetCount = 1;
+    count_info.pDescriptorCounts = &count;
+    VkDescriptorSetAllocateInfo alloc_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, &count_info};
+    alloc_info.descriptorPool = _empty_texture_table_pool;
+    alloc_info.descriptorSetCount = 1;
+    alloc_info.pSetLayouts = &_texture_table_layout;
+    err = vkAllocateDescriptorSets(_device, &alloc_info, &_empty_texture_table_set);
+    if (err) {
+      vulkan_error(err, "Failed to allocate an empty texture table");
+      return VK_NULL_HANDLE;
+    }
+    set_object_name(_empty_texture_table_set, "<empty texture table>");
+  }
+  return _empty_texture_table_set;
+}
+
+/**
+ * Brings a TextureTable's descriptor set up to date, once a frame: its
+ * textures are made ready to sample (uploaded, in the right layout), and
+ * entries that changed are written.  Entries only added are written into the
+ * set in use where update-after-bind allows; any other change, or more
+ * textures than there is room for, makes a new set (the old one is freed once
+ * the frames using it are done).  Returns false if it has no set.
+ */
+bool VulkanGraphicsStateGuardian::
+update_texture_table(TextureTable *table, VulkanBufferContext *bc) {
+  if (bc->_table_frame == _frame_counter && bc->_table_seq == table->get_modified()) {
+    return bc->_table_set != VK_NULL_HANDLE;
+  }
+  bc->_table_frame = _frame_counter;
+
+  pvector<TextureTable::Entry> entries;
+  UpdateSeq rewritten;
+  bc->_table_seq = table->get_entries(entries, rewritten);
+  uint32_t count = (uint32_t)entries.size();
+  if (count > (uint32_t)_max_texture_table_size) {
+    vulkandisplay_cat.error()
+      << *table << " holds more than " << _max_texture_table_size
+      << " textures; the rest are left out.\n";
+    count = (uint32_t)_max_texture_table_size;
+  }
+
+  // Use every texture this frame, and see what it is now.
+  PreparedGraphicsObjects *pgo = get_prepared_objects();
+  pvector<VkDescriptorImageInfo> infos(count);
+  for (uint32_t i = 0; i < count; ++i) {
+    Texture *texture = entries[i]._texture;
+    VulkanTextureContext *tc = use_texture(texture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                           VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
+                                           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                           VK_ACCESS_2_SHADER_READ_BIT);
+    SamplerState sampler = entries[i]._sampler;
+    VulkanSamplerContext *smc;
+    DCAST_INTO_R(smc, sampler.prepare_now(pgo, this), false);
+    infos[i].sampler = smc->_sampler;
+    infos[i].imageView = (tc != nullptr) ? tc->get_image_view(0) : VK_NULL_HANDLE;
+    infos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  }
+
+  // Which entries already written differ, and from where on is it new?
+  bool rewrite = false;
+  uint32_t kept = std::min(count, bc->_table_written);
+  for (uint32_t i = 0; i < kept && !rewrite; ++i) {
+    const VkDescriptorImageInfo &a = infos[i];
+    const VkDescriptorImageInfo &b = bc->_table_infos[i];
+    rewrite = (a.sampler != b.sampler || a.imageView != b.imageView);
+  }
+  if (count < bc->_table_written) {
+    rewrite = true;
+  }
+  if (!rewrite && count == bc->_table_written && bc->_table_set != VK_NULL_HANDLE) {
+    return true;
+  }
+
+  uint32_t first = kept;
+  if (rewrite || bc->_table_set == VK_NULL_HANDLE || count > bc->_table_capacity ||
+      !_texture_table_update_after_bind) {
+    // A new set, in a new pool, with room to grow.
+    uint32_t capacity = 16;
+    while (capacity < count) {
+      capacity *= 2;
+    }
+    capacity = std::min(capacity, (uint32_t)_max_texture_table_size);
+    capacity = std::max(capacity, 1u);
+
+    VkDescriptorPoolSize size = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, capacity};
+    VkDescriptorPoolCreateInfo pool_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    pool_info.flags = _texture_table_update_after_bind ? VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT : 0;
+    pool_info.maxSets = 1;
+    pool_info.poolSizeCount = 1;
+    pool_info.pPoolSizes = &size;
+    VkDescriptorPool pool;
+    VkResult err = vkCreateDescriptorPool(_device, &pool_info, nullptr, &pool);
+    if (err) {
+      vulkan_error(err, "Failed to create descriptor pool for a texture table");
+      return bc->_table_set != VK_NULL_HANDLE;
+    }
+
+    VkDescriptorSetVariableDescriptorCountAllocateInfo count_info = {
+      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO,
+    };
+    count_info.descriptorSetCount = 1;
+    count_info.pDescriptorCounts = &capacity;
+    VkDescriptorSetAllocateInfo alloc_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, &count_info};
+    alloc_info.descriptorPool = pool;
+    alloc_info.descriptorSetCount = 1;
+    alloc_info.pSetLayouts = &_texture_table_layout;
+    VkDescriptorSet set;
+    err = vkAllocateDescriptorSets(_device, &alloc_info, &set);
+    if (err) {
+      vulkan_error(err, "Failed to allocate descriptor set for a texture table");
+      vkDestroyDescriptorPool(_device, pool, nullptr);
+      return bc->_table_set != VK_NULL_HANDLE;
+    }
+    set_object_name(set, table->get_name());
+
+    if (bc->_table_pool != VK_NULL_HANDLE) {
+      _frame_data->_pending_destroy_descriptor_pools.push_back(bc->_table_pool);
+    }
+    bc->_table_pool = pool;
+    bc->_table_set = set;
+    bc->_table_capacity = capacity;
+    first = 0;
+  }
+
+  if (count > first) {
+    VkWriteDescriptorSet write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    write.dstSet = bc->_table_set;
+    write.dstBinding = 0;
+    write.dstArrayElement = first;
+    write.descriptorCount = count - first;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo = infos.data() + first;
+    _vkUpdateDescriptorSets(_device, 1, &write, 0, nullptr);
+  }
+  bc->_table_written = count;
+  bc->_table_infos = std::move(infos);
+  return true;
 }
 
 /**
@@ -4776,6 +5072,11 @@ finish_frame(FrameData &frame_data) {
     vkDestroyQueryPool(_device, pool, nullptr);
   }
   frame_data._pending_destroy_query_pools.clear();
+
+  for (VkDescriptorPool pool : frame_data._pending_destroy_descriptor_pools) {
+    vkDestroyDescriptorPool(_device, pool, nullptr);
+  }
+  frame_data._pending_destroy_descriptor_pools.clear();
 
   for (VkSemaphore semaphore : frame_data._pending_destroy_semaphores) {
     vkDestroySemaphore(_device, semaphore, nullptr);
