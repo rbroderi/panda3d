@@ -45,6 +45,22 @@ get_buffer_view(int view) const {
 }
 
 /**
+ * Returns true if the texture was modified since it was last loaded, and so
+ * is to be uploaded (or made again).  An image older than the one it was
+ * marked loaded with is not: extract_texture_data() marks the context loaded
+ * from pipeline stage 0, and a later stage, still a frame or two behind,
+ * would otherwise upload its older RAM image over what has been rendered.
+ */
+INLINE bool VulkanTextureContext::
+needs_upload() const {
+  if (was_properties_modified()) {
+    return true;
+  }
+  return was_image_modified() &&
+    !(get_texture()->get_image_modified() < get_image_modified());
+}
+
+/**
  * Indicates that the texture has been read by the command buffer with the
  * given sequence number.
  */

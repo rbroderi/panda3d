@@ -42,6 +42,7 @@ public:
   VkImageView get_layer_view(VkDevice device, uint32_t layer);
   VkImageView get_storage_view(VkDevice device, int level, int layer, int view);
 
+  INLINE bool needs_upload() const;
   INLINE void mark_read(uint64_t seq);
   INLINE void discard();
 

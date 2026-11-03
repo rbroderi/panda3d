@@ -1522,7 +1522,7 @@ use_texture(Texture *texture, VkImageLayout layout,
   // We only update the texture the first time it is used in a frame.
   // Otherwise, we would have to invalidate the descriptor sets.
   if (tc->_read_seq < _render_cmd._seq) {
-    if (tc->was_modified()) {
+    if (tc->needs_upload()) {
       if (tc->needs_recreation()) {
         tc->release(get_frame_data());
         if (!create_texture(tc)) {
@@ -2428,7 +2428,7 @@ update_texture(TextureContext *tc, bool force, CompletionToken token) {
   // Note that this path is only hit through PreparedGraphicsObjects, all
   // internal uses should go through use_texture().
 
-  if (vtc->was_modified()) {
+  if (vtc->needs_upload()) {
     if (vtc->needs_recreation()) {
       // We need to recreate the image entirely.
       vtc->release(get_frame_data());
