@@ -456,6 +456,9 @@ private:
   bool _supports_ray_query = false;
   bool _supports_ray_position_fetch = false;
   bool _supports_mesh_shader = false;
+  // The subgroup size every compute pipeline asks for, or 0 for the driver's
+  // choice (vulkan-compute-subgroup-size).
+  uint32_t _compute_subgroup_size = 0;
 
   // The rendering pass's shading rate texture, if any: the first its output's
   // display regions have, attached for the whole pass (_shading_rate_attached

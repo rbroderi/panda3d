@@ -85,6 +85,13 @@ ConfigVariableBool vulkan_ray_query
           "This also makes every memory allocation addressable from shaders, "
           "which ray tracing needs."));
 
+ConfigVariableInt vulkan_compute_subgroup_size
+("vulkan-compute-subgroup-size", 0,
+ PRC_DESC("If this is nonzero, and the video card lets a compute pipeline "
+          "choose its subgroup size (subgroupSizeControl, core in Vulkan "
+          "1.3) within its range, every compute pipeline asks for this "
+          "size, eg. 32 or 64 on AMD.  At 0, the driver chooses."));
+
 ConfigVariableBool vulkan_mesh_shader
 ("vulkan-mesh-shader", true,
  PRC_DESC("If this is set to true, and the video card supports task and mesh "

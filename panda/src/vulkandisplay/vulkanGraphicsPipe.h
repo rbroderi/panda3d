@@ -93,6 +93,16 @@ public:
   bool _gpu_supports_fragment_shading_rate = false;
   bool _gpu_supports_texture_tables = false;
   bool _gpu_supports_texture_table_update_after_bind = false;
+  bool _gpu_supports_shader_float16 = false;
+  bool _gpu_supports_shader_int8 = false;
+  bool _gpu_supports_storage_buffer_16bit = false;
+  bool _gpu_supports_uniform_and_storage_buffer_16bit = false;
+  bool _gpu_supports_storage_push_constant_16bit = false;
+  bool _gpu_supports_subgroup_size_control = false;
+  bool _gpu_supports_compute_full_subgroups = false;
+  // The subgroup sizes a compute pipeline may ask for, 0 if it may not.
+  uint32_t _min_compute_subgroup_size = 0;
+  uint32_t _max_compute_subgroup_size = 0;
   VkPhysicalDeviceMemoryProperties _memory_properties;
   pvector<VkQueueFamilyProperties> _queue_families;
   VkDeviceSize _max_allocation_size;

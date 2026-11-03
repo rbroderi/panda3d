@@ -568,10 +568,12 @@ disassemble(std::ostream &out) const {
 void ShaderModuleSpirV::
 post_analyze(const SpirVResultDatabase &db) {
 #ifndef NDEBUG
-  // Mesh shading needs SPIR-V 1.4; validate each module as its own version.
-  bool spirv_1_4 = _instructions.get_data_size() > 1 &&
-                   _instructions.get_data()[1] >= 0x00010400u;
-  _instructions.validate(spirv_1_4 ? SPV_ENV_UNIVERSAL_1_4 : SPV_ENV_UNIVERSAL_1_0);
+  // Mesh shading needs SPIR-V 1.4, subgroup operations 1.3; validate each
+  // module as its own version.
+  uint32_t version = _instructions.get_data_size() > 1 ? _instructions.get_data()[1] : 0;
+  _instructions.validate(version >= 0x00010400u ? SPV_ENV_UNIVERSAL_1_4 :
+                         version >= 0x00010300u ? SPV_ENV_UNIVERSAL_1_3 :
+                                                  SPV_ENV_UNIVERSAL_1_0);
 #endif
 
   _uniform_struct_types.clear();

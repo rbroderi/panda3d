@@ -434,8 +434,46 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
       features2.pNext = &fsr_features;
     }
 
+    // 16-bit arithmetic (core in 1.2) and 16-bit storage (core in 1.1).
+    VkPhysicalDeviceShaderFloat16Int8Features f16_features = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES,
+      features2.pNext,
+    };
+    if (_gpu_properties.apiVersion >= VK_MAKE_VERSION(1, 2, 0)) {
+      features2.pNext = &f16_features;
+    }
+    VkPhysicalDevice16BitStorageFeatures s16_features = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES,
+      features2.pNext,
+    };
+    if (_gpu_properties.apiVersion >= VK_MAKE_VERSION(1, 1, 0)) {
+      features2.pNext = &s16_features;
+    }
+
+    // A compute pipeline's subgroup size, core in 1.3.
+    bool has_subgroup_size_control =
+      _gpu_properties.apiVersion >= VK_MAKE_VERSION(1, 3, 0) ||
+      (_gpu_properties.apiVersion >= VK_MAKE_VERSION(1, 1, 0) &&
+       has_device_extension(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME));
+    VkPhysicalDeviceSubgroupSizeControlFeatures ssc_features = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES,
+      features2.pNext,
+    };
+    if (has_subgroup_size_control) {
+      features2.pNext = &ssc_features;
+    }
+
     pVkGetPhysicalDeviceFeatures2(_gpu, &features2);
     _gpu_features = features2.features;
+    _gpu_supports_shader_float16 = f16_features.shaderFloat16;
+    _gpu_supports_shader_int8 = f16_features.shaderInt8;
+    _gpu_supports_storage_buffer_16bit = s16_features.storageBuffer16BitAccess;
+    _gpu_supports_uniform_and_storage_buffer_16bit = s16_features.uniformAndStorageBuffer16BitAccess;
+    _gpu_supports_storage_push_constant_16bit = s16_features.storagePushConstant16;
+    _gpu_supports_subgroup_size_control = has_subgroup_size_control &&
+                                          ssc_features.subgroupSizeControl;
+    _gpu_supports_compute_full_subgroups = _gpu_supports_subgroup_size_control &&
+                                           ssc_features.computeFullSubgroups;
     if (has_fsr_ext && fsr_features.attachmentFragmentShadingRate &&
         fsr_features.pipelineFragmentShadingRate) {
       VkFormatProperties format_props;
@@ -494,6 +532,13 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
     _gpu_supports_fragment_shading_rate = false;
     _gpu_supports_texture_tables = false;
     _gpu_supports_texture_table_update_after_bind = false;
+    _gpu_supports_shader_float16 = false;
+    _gpu_supports_shader_int8 = false;
+    _gpu_supports_storage_buffer_16bit = false;
+    _gpu_supports_uniform_and_storage_buffer_16bit = false;
+    _gpu_supports_storage_push_constant_16bit = false;
+    _gpu_supports_subgroup_size_control = false;
+    _gpu_supports_compute_full_subgroups = false;
   }
 
   // Default the maximum allocation size to the largest of the heaps.
@@ -543,6 +588,14 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
       props2.pNext = &iub_props;
     }
 
+    VkPhysicalDeviceSubgroupSizeControlProperties ssc_props = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES,
+      props2.pNext,
+    };
+    if (_gpu_supports_subgroup_size_control) {
+      props2.pNext = &ssc_props;
+    }
+
     if (_gpu_properties.apiVersion >= VK_MAKE_VERSION(1, 1, 0)) {
       PFN_vkGetPhysicalDeviceProperties2 pVkGetPhysicalDeviceProperties2 =
         (PFN_vkGetPhysicalDeviceProperties2)vkGetInstanceProcAddr(_instance, "vkGetPhysicalDeviceProperties2");
@@ -561,6 +614,11 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
 
     _max_allocation_size = maint3_props.maxMemoryAllocationSize;
     _max_inline_uniform_block_size = iub_props.maxInlineUniformBlockSize;
+    if (_gpu_supports_subgroup_size_control &&
+        (ssc_props.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0) {
+      _min_compute_subgroup_size = ssc_props.minSubgroupSize;
+      _max_compute_subgroup_size = ssc_props.maxSubgroupSize;
+    }
   }
 
   // Fill in DisplayInformation.

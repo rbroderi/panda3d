@@ -25,6 +25,9 @@
 
 #include <spirv-tools/libspirv.h>
 
+#include <cstring>
+#include <memory>
+
 static const std::string debug_header = "\n\
 #ifndef _PANDA3D_DEBUG_H\n\
 #define _PANDA3D_DEBUG_H\n\
@@ -504,14 +507,41 @@ compile_now(ShaderModule::Stage stage, std::istream &in,
   shader.setAutoMapLocations(true);
 
   Includer includer(options.get_include_path(), record);
-  if (!shader.parse(GetDefaultResources(), 110, false, messages, includer)) {
+  bool parsed = shader.parse(GetDefaultResources(), 110, false, messages, includer);
+
+  // Subgroup operations need SPIR-V 1.3.  A GL driver that loads SPIR-V
+  // itself need only take 1.0, so only a shader that needs 1.3 is parsed
+  // again for it.
+  glslang::TShader *result = &shader;
+  std::unique_ptr<glslang::TShader> retry;
+  if (!parsed && !is_cg && !is_mesh_stage &&
+      strstr(shader.getInfoLog(), "requires SPIR-V 1.3") != nullptr) {
+    retry.reset(new glslang::TShader(language));
+    retry->setStringsWithLengthsAndNames(&string, &length, &fname, 1);
+    retry->setEntryPoint("main");
+    retry->setPreamble(preamble.c_str());
+    retry->setEnvInput(glslang::EShSource::EShSourceGlsl, language, glslang::EShClient::EShClientOpenGL, 450);
+    retry->setEnvClient(glslang::EShClient::EShClientOpenGL, glslang::EShTargetOpenGL_450);
+    retry->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_3);
+    if (options.has_entry_point()) {
+      retry->setSourceEntryPoint(options.get_entry_point().c_str());
+    }
+    retry->setAutoMapBindings(true);
+    retry->setAutoMapLocations(true);
+
+    Includer retry_includer(options.get_include_path(), record);
+    parsed = retry->parse(GetDefaultResources(), 110, false, messages, retry_includer);
+    result = retry.get();
+  }
+
+  if (!parsed) {
     if (output_log != nullptr) {
-      *output_log << shader.getInfoLog();
+      *output_log << result->getInfoLog();
     }
     if (!options.get_suppress_log()) {
       shader_cat.error()
         << "Failed to parse " << filename << ":\n"
-        << shader.getInfoLog();
+        << result->getInfoLog();
     }
     return nullptr;
   }
@@ -522,7 +552,7 @@ compile_now(ShaderModule::Stage stage, std::istream &in,
   ShaderModuleSpirV::InstructionStream stream;
   {
     glslang::TProgram program;
-    program.addShader(&shader);
+    program.addShader(result);
     if (!program.link(messages)) {
       shader_cat.error()
         << "Failed to link " << filename << ":\n"

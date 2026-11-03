@@ -176,6 +176,7 @@ reset() {
   enabled_features.features.textureCompressionBC = features.textureCompressionBC;
   enabled_features.features.fragmentStoresAndAtomics = features.fragmentStoresAndAtomics;
   enabled_features.features.shaderFloat64 = features.shaderFloat64;
+  enabled_features.features.shaderInt16 = features.shaderInt16;
 
   // Vulkan 1.2
   VkPhysicalDeviceVulkan12Features v_1_2_features = {
@@ -183,6 +184,8 @@ reset() {
     enabled_features.pNext,
   };
   v_1_2_features.timelineSemaphore = VK_TRUE;
+  v_1_2_features.shaderFloat16 = pipe->_gpu_supports_shader_float16;
+  v_1_2_features.shaderInt8 = pipe->_gpu_supports_shader_int8;
 #ifdef DO_PSTATS
   v_1_2_features.hostQueryReset = VK_TRUE;
 #endif
@@ -397,6 +400,53 @@ reset() {
   } else {
     _supports_mesh_shader = false;
     _push_constant_stages = VK_SHADER_STAGE_ALL_GRAPHICS;
+  }
+
+  // 16-bit storage (core in 1.1), for float16_t and int16_t in buffers.
+  VkPhysicalDevice16BitStorageFeatures s16_features = {
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES,
+    enabled_features.pNext,
+  };
+  s16_features.storageBuffer16BitAccess = pipe->_gpu_supports_storage_buffer_16bit;
+  s16_features.uniformAndStorageBuffer16BitAccess = pipe->_gpu_supports_uniform_and_storage_buffer_16bit;
+  s16_features.storagePushConstant16 = pipe->_gpu_supports_storage_push_constant_16bit;
+  if (s16_features.storageBuffer16BitAccess ||
+      s16_features.uniformAndStorageBuffer16BitAccess ||
+      s16_features.storagePushConstant16) {
+    enabled_features.pNext = &s16_features;
+  }
+
+  // Subgroup size control (core in 1.3): a compute pipeline's subgroup size.
+  VkPhysicalDeviceSubgroupSizeControlFeatures ssc_features = {
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES,
+    enabled_features.pNext,
+  };
+  _compute_subgroup_size = 0;
+  if (pipe->_gpu_supports_subgroup_size_control) {
+    ssc_features.subgroupSizeControl = VK_TRUE;
+    ssc_features.computeFullSubgroups = pipe->_gpu_supports_compute_full_subgroups;
+    enabled_features.pNext = &ssc_features;
+    if (pipe->_gpu_properties.apiVersion < VK_MAKE_VERSION(1, 3, 0)) {
+      extensions.push_back(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME);
+    }
+
+    uint32_t size = (uint32_t)std::max(0, vulkan_compute_subgroup_size.get_value());
+    if (size != 0) {
+      if (size >= pipe->_min_compute_subgroup_size &&
+          size <= pipe->_max_compute_subgroup_size && (size & (size - 1)) == 0) {
+        _compute_subgroup_size = size;
+      } else {
+        vulkandisplay_cat.warning()
+          << "vulkan-compute-subgroup-size " << size << " is not a size this "
+             "device's compute pipelines can ask for ("
+          << pipe->_min_compute_subgroup_size << "-"
+          << pipe->_max_compute_subgroup_size << ").\n";
+      }
+    }
+  } else if (vulkan_compute_subgroup_size.get_value() != 0) {
+    vulkandisplay_cat.warning()
+      << "vulkan-compute-subgroup-size is set, but this device cannot choose "
+         "a compute pipeline's subgroup size.\n";
   }
 
   // VK_KHR_portability_subset
@@ -7576,6 +7626,15 @@ make_compute_pipeline(VulkanShaderContext *sc) {
   pipeline_info.layout = sc->_pipeline_layout;
   pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
   pipeline_info.basePipelineIndex = 0;
+
+  VkPipelineShaderStageRequiredSubgroupSizeCreateInfo subgroup_size_info = {
+    VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO,
+    nullptr,
+    _compute_subgroup_size,
+  };
+  if (_compute_subgroup_size != 0) {
+    pipeline_info.stage.pNext = &subgroup_size_info;
+  }
 
   VkResult err;
   VkPipeline pipeline;
