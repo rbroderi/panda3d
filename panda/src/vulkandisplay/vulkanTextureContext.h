@@ -40,6 +40,7 @@ public:
   INLINE VkImageView get_image_view(int view) const;
   INLINE VkBufferView get_buffer_view(int view) const;
   VkImageView get_layer_view(VkDevice device, uint32_t layer);
+  VkImageView get_storage_view(VkDevice device, int level, int layer, int view);
 
   INLINE void mark_read(uint64_t seq);
   INLINE void discard();
@@ -89,6 +90,13 @@ public:
   // Single-layer 2D views of a layered image (a cube map's faces), made as
   // they are rendered into; null where none has been made.
   small_vector<VkImageView> _layer_views;
+  // Views of one mip level, and one layer or all of them, to bind as a
+  // storage image (which may see one level only), made as they are bound:
+  // keyed by get_storage_view's level, layer and view.
+  small_vector<std::pair<uint64_t, VkImageView> > _storage_views;
+  // The type and layer count of each of _image_views.
+  VkImageViewType _view_type = VK_IMAGE_VIEW_TYPE_2D;
+  uint32_t _layers_per_view = 1;
   VkBuffer _buffer = VK_NULL_HANDLE;
   small_vector<VkBufferView> _buffer_views;
   VulkanMemoryBlock _block;

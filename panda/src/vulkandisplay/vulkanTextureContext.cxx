@@ -98,6 +98,11 @@ release(VulkanFrameData &frame_data) {
   }
   _layer_views.clear();
 
+  for (auto &storage_view : _storage_views) {
+    frame_data._pending_destroy_image_views.push_back(storage_view.second);
+  }
+  _storage_views.clear();
+
   if (_buffer != VK_NULL_HANDLE) {
     frame_data._pending_destroy_buffers.push_back(_buffer);
 
@@ -153,6 +158,11 @@ destroy_now(VkDevice device) {
     }
   }
   _layer_views.clear();
+
+  for (auto &storage_view : _storage_views) {
+    vkDestroyImageView(device, storage_view.second, nullptr);
+  }
+  _storage_views.clear();
 
   if (_image != VK_NULL_HANDLE) {
     vkDestroyImage(device, _image, nullptr);
@@ -420,4 +430,63 @@ get_layer_view(VkDevice device, uint32_t layer) {
     }
   }
   return _layer_views[layer];
+}
+
+/**
+ * Returns a view of the given mip level of the image (as the texture numbers
+ * them), and of the given layer as a 2D image, or of every layer of the given
+ * view if layer is negative, to bind as a storage image; making it the first
+ * time it is asked for.  A storage image may see one mip level only, so a
+ * mipmapped image needs one of these even for its first level.
+ */
+VkImageView VulkanTextureContext::
+get_storage_view(VkDevice device, int level, int layer, int view) {
+  nassertr(_image != VK_NULL_HANDLE, VK_NULL_HANDLE);
+  uint32_t mip = (uint32_t)std::max(level - _mipmap_begin, 0);
+  mip = std::min(mip, _mip_levels - 1);
+  int num_views = std::max((int)_image_views.size(), 1);
+  view = std::min(std::max(view, 0), num_views - 1);
+  if (_view_type == VK_IMAGE_VIEW_TYPE_3D) {
+    layer = -1;  // its slices are not layers: bound whole
+  } else if (layer >= (int)_array_layers) {
+    layer = (int)_array_layers - 1;
+  }
+
+  uint64_t key = ((uint64_t)mip << 48) | ((uint64_t)(uint32_t)(layer + 1) << 16) | (uint64_t)view;
+  for (auto &storage_view : _storage_views) {
+    if (storage_view.first == key) {
+      return storage_view.second;
+    }
+  }
+
+  VkImageViewCreateInfo view_info = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+  view_info.image = _image;
+  view_info.format = _format;
+  view_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+  view_info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+  view_info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+  view_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+  view_info.subresourceRange.aspectMask = _aspect_mask;
+  view_info.subresourceRange.baseMipLevel = mip;
+  view_info.subresourceRange.levelCount = 1;
+  if (layer >= 0) {
+    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_info.subresourceRange.baseArrayLayer = (uint32_t)layer;
+    view_info.subresourceRange.layerCount = 1;
+  } else {
+    view_info.viewType = _view_type;
+    view_info.subresourceRange.baseArrayLayer = (uint32_t)view * _layers_per_view;
+    view_info.subresourceRange.layerCount = _layers_per_view;
+  }
+
+  VkImageView image_view;
+  VkResult err = vkCreateImageView(device, &view_info, nullptr, &image_view);
+  if (err) {
+    vulkandisplay_cat.error()
+      << "Failed to create a storage view of level " << level << " (error "
+      << err << ")\n";
+    return VK_NULL_HANDLE;
+  }
+  _storage_views.push_back(std::make_pair(key, image_view));
+  return image_view;
 }

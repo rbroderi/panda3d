@@ -1137,7 +1137,14 @@ fetch_descriptor(VulkanGraphicsStateGuardian *gsg, const Descriptor &desc,
       } else {
         VkDescriptorImageInfo &image_info = *image_infos++;
         image_info.sampler = VK_NULL_HANDLE;
-        image_info.imageView = tc ? tc->get_image_view(view) : VK_NULL_HANDLE;
+        if (tc == nullptr) {
+          image_info.imageView = VK_NULL_HANDLE;
+        } else if (tc->_mip_levels > 1 || n > tc->_mipmap_begin || z >= 0) {
+          // The mip level (and the layer) the input was bound to.
+          image_info.imageView = tc->get_storage_view(gsg->_device, n, z, view);
+        } else {
+          image_info.imageView = tc->get_image_view(view);
+        }
         image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
       }
     }

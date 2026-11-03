@@ -2000,6 +2000,8 @@ create_texture(VulkanTextureContext *tc) {
     view_info.subresourceRange.levelCount = num_levels;
     view_info.subresourceRange.baseArrayLayer = 0;
     view_info.subresourceRange.layerCount = num_layers_per_view;
+    tc->_view_type = view_info.viewType;
+    tc->_layers_per_view = num_layers_per_view;
 
     for (int view = 0; view < num_views; ++view) {
       VkImageView image_view;
