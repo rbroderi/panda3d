@@ -625,13 +625,15 @@ create_modules(VulkanGraphicsStateGuardian *gsg) {
 
     // From SPIR-V 1.4 (the task and mesh stages), an entry point lists every
     // global variable it uses, not only its inputs and outputs.
-    bool spirv_1_4 = instructions.get_data_size() > 1 &&
-                     instructions.get_data()[1] >= 0x00010400u;
-    if (spirv_1_4) {
+    uint32_t version = instructions.get_data_size() > 1 ? instructions.get_data()[1] : 0;
+    if (version >= 0x00010400u) {
       list_globals_in_interfaces(instructions);
     }
 #ifndef NDEBUG
-    if (!instructions.validate(spirv_1_4 ? SPV_ENV_VULKAN_1_2 : SPV_ENV_VULKAN_1_0)) {
+    // SPIR-V 1.3 (subgroup operations) is Vulkan 1.1's, 1.4 Vulkan 1.2's.
+    if (!instructions.validate(version >= 0x00010400u ? SPV_ENV_VULKAN_1_2 :
+                               version >= 0x00010300u ? SPV_ENV_VULKAN_1_1 :
+                                                        SPV_ENV_VULKAN_1_0)) {
       success = false;
       break;
     }

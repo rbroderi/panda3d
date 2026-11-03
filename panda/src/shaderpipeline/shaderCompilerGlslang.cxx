@@ -603,7 +603,9 @@ compile_now(ShaderModule::Stage stage, std::istream &in,
   // Run it through the optimizer.
   std::vector<uint32_t> optimized;
   if (is_cg || options.get_optimize() != CompilerOptions::Optimize::NONE) {
-    spv_optimizer_t *opt = spvOptimizerCreate(is_mesh_stage ? SPV_ENV_UNIVERSAL_1_4 : SPV_ENV_UNIVERSAL_1_0);
+    spv_optimizer_t *opt = spvOptimizerCreate(is_mesh_stage ? SPV_ENV_UNIVERSAL_1_4 :
+                                              retry != nullptr ? SPV_ENV_UNIVERSAL_1_3 :
+                                                                 SPV_ENV_UNIVERSAL_1_0);
     spvOptimizerSetMessageConsumer(opt, log_message);
 
     switch (options.get_optimize()) {
