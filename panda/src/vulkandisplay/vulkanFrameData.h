@@ -96,6 +96,13 @@ public:
     // RAM images, as in OpenGL, bottom row first.
     bool _flip = false;
     VulkanTextureContext::TexelConversion _conversion;
+
+    // The texture's own context, for a synchronous extract_texture_data():
+    // marked loaded once the RAM image is written, since the RAM image now
+    // matches the GPU's.  Else writing the RAM image would mark the texture
+    // modified, and the next pass to sample it would upload this RAM image
+    // over whatever was rendered into it since.
+    VulkanTextureContext *_context = nullptr;
   };
   typedef pvector<QueuedDownload> DownloadQueue;
   DownloadQueue _download_queue;

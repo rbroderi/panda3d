@@ -6306,6 +6306,11 @@ do_extract_image(VulkanTextureContext *tc, Texture *tex, int view, int z, Screen
   down._texture = tex;
   down._view = view;
   down._request = request;
+  if (request == nullptr && tc->get_texture() == tex) {
+    // extract_texture_data(): finished in this frame's end_frame(), while the
+    // context still exists (see QueuedDownload::_context).
+    down._context = tc;
+  }
 
   // Issue a barrier to make sure that the previous copy operations on the
   // staging buffer are visible to host reads.

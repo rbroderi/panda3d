@@ -53,6 +53,10 @@ finish_downloads(VkDevice device) {
     // We won't need this buffer any more.
     vkDestroyBuffer(device, down._buffer, nullptr);
 
+    if (down._context != nullptr && down._context->get_texture() == down._texture) {
+      down._context->mark_loaded();
+    }
+
     if (down._request != nullptr) {
       down._request->finish();
     }
