@@ -32,6 +32,69 @@ static PStatCollector _update_sattr_descriptor_set_pcollector("Draw:Update Descr
 TypeHandle VulkanShaderContext::_type_handle;
 
 /**
+ * Adds every global variable of the module to the interface of each of its
+ * entry points, as SPIR-V 1.4 and later require of the variables an entry
+ * point uses: the transforms add uniform blocks without listing them.
+ */
+static void
+list_globals_in_interfaces(ShaderModuleSpirV::InstructionStream &stream) {
+  std::vector<uint32_t> &words = stream;
+
+  std::vector<uint32_t> globals;
+  bool in_function = false;
+  for (size_t i = 5; i < words.size();) {
+    uint32_t wcount = words[i] >> spv::WordCountShift;
+    spv::Op opcode = (spv::Op)(words[i] & spv::OpCodeMask);
+    nassertv(wcount > 0);
+    if (opcode == spv::OpFunction) {
+      in_function = true;
+    }
+    else if (opcode == spv::OpFunctionEnd) {
+      in_function = false;
+    }
+    else if (opcode == spv::OpVariable && !in_function && wcount >= 4 &&
+             words[i + 3] != spv::StorageClassFunction) {
+      globals.push_back(words[i + 2]);
+    }
+    i += wcount;
+  }
+
+  std::vector<uint32_t> result(words.begin(), words.begin() + 5);
+  for (size_t i = 5; i < words.size();) {
+    uint32_t wcount = words[i] >> spv::WordCountShift;
+    spv::Op opcode = (spv::Op)(words[i] & spv::OpCodeMask);
+    if (opcode != spv::OpEntryPoint) {
+      result.insert(result.end(), words.begin() + i, words.begin() + i + wcount);
+      i += wcount;
+      continue;
+    }
+
+    // The name is a nul-terminated string after the model and the function.
+    size_t end = i + wcount;
+    size_t j = i + 3;
+    while (j < end) {
+      uint32_t w = words[j++];
+      if ((w & 0xff) == 0 || (w & 0xff00) == 0 ||
+          (w & 0xff0000) == 0 || (w & 0xff000000) == 0) {
+        break;
+      }
+    }
+    std::vector<uint32_t> interface(words.begin() + j, words.begin() + end);
+    for (uint32_t id : globals) {
+      if (std::find(interface.begin(), interface.end(), id) == interface.end()) {
+        interface.push_back(id);
+      }
+    }
+    uint32_t new_wcount = (uint32_t)((j - i) + interface.size());
+    result.push_back((new_wcount << spv::WordCountShift) | spv::OpEntryPoint);
+    result.insert(result.end(), words.begin() + i + 1, words.begin() + j);
+    result.insert(result.end(), interface.begin(), interface.end());
+    i = end;
+  }
+  words.swap(result);
+}
+
+/**
  * Constructs a shader context.  Follow this up with calls to fill in the
  * module array.
  */
@@ -128,7 +191,7 @@ VulkanShaderContext(Shader *shader) :
  */
 void VulkanShaderContext::
 destroy_modules(VkDevice device) {
-  for (size_t i = 0; i <= (size_t)Shader::Stage::COMPUTE; ++i) {
+  for (size_t i = 0; i < num_stages; ++i) {
     if (_modules[i] != VK_NULL_HANDLE) {
       vkDestroyShaderModule(device, _modules[i], nullptr);
       _modules[i] = VK_NULL_HANDLE;
@@ -290,6 +353,14 @@ create_modules(VulkanGraphicsStateGuardian *gsg) {
     Shader::Stage stage = module->get_stage();
     if (stage == Shader::Stage::COMPUTE) {
       _bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
+    }
+    if ((stage == Shader::Stage::TASK || stage == Shader::Stage::MESH) &&
+        !gsg->_supports_mesh_shader) {
+      vulkandisplay_cat.error()
+        << "Shader " << _shader->get_debug_name() << " has a " << stage
+        << " stage, but mesh shaders are not supported on this device.\n";
+      success = false;
+      continue;
     }
 
     const ShaderModuleSpirV *spv_module = (const ShaderModuleSpirV *)module.p();
@@ -518,8 +589,16 @@ create_modules(VulkanGraphicsStateGuardian *gsg) {
     }
 
     ShaderModuleSpirV::InstructionStream instructions = transformer.get_result();
+
+    // From SPIR-V 1.4 (the task and mesh stages), an entry point lists every
+    // global variable it uses, not only its inputs and outputs.
+    bool spirv_1_4 = instructions.get_data_size() > 1 &&
+                     instructions.get_data()[1] >= 0x00010400u;
+    if (spirv_1_4) {
+      list_globals_in_interfaces(instructions);
+    }
 #ifndef NDEBUG
-    if (!instructions.validate(SPV_ENV_VULKAN_1_0)) {
+    if (!instructions.validate(spirv_1_4 ? SPV_ENV_VULKAN_1_2 : SPV_ENV_VULKAN_1_0)) {
       success = false;
       break;
     }
@@ -562,7 +641,7 @@ create_modules(VulkanGraphicsStateGuardian *gsg) {
   }
 
   if (!success) {
-    for (size_t i = 0; i <= (size_t)Shader::Stage::COMPUTE; ++i) {
+    for (size_t i = 0; i < num_stages; ++i) {
       if (_modules[i] != VK_NULL_HANDLE) {
         vkDestroyShaderModule(gsg->_device, _modules[i], nullptr);
         _modules[i] = VK_NULL_HANDLE;
@@ -706,6 +785,12 @@ r_extract_resources(const Shader::Parameter &param, const AccessChain &chain,
     }
     if (desc._stage_mask & VK_SHADER_STAGE_COMPUTE_BIT) {
       desc._pipeline_stage_mask |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    }
+    if (desc._stage_mask & VK_SHADER_STAGE_TASK_BIT_EXT) {
+      desc._pipeline_stage_mask |= VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT;
+    }
+    if (desc._stage_mask & VK_SHADER_STAGE_MESH_BIT_EXT) {
+      desc._pipeline_stage_mask |= VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT;
     }
 
     if (const ShaderType::SampledImage *sampler = type->as_sampled_image()) {
@@ -1226,7 +1311,9 @@ clear_pipeline_cache() {
   for (auto &item : _pipeline_map) {
     const PipelineKey &key = item.first;
 
-    unref_delete(key._format);
+    if (key._format != nullptr) {
+      unref_delete(key._format);
+    }
     if (key._render_mode_attrib != nullptr) {
       unref_delete(key._render_mode_attrib);
     }
@@ -1351,7 +1438,10 @@ get_pipeline(VulkanGraphicsStateGuardian *gsg, const RenderState *state,
     _pipeline_map[key] = pipeline;
 
     // Increment reference counts.
-    key._format->ref();
+    // A mesh pipeline has no vertex format.
+    if (key._format != nullptr) {
+      key._format->ref();
+    }
     if (key._render_mode_attrib != nullptr) {
       key._render_mode_attrib->ref();
     }

@@ -1166,9 +1166,78 @@ make_compute(SourceLanguage lang, string body, const CompilerOptions &options) {
 }
 
 /**
+ * Loads a mesh shader: a mesh stage, an optional task stage before it, and a
+ * fragment stage.  Draw it with a MeshDrawNode; it needs a GSG for which
+ * get_supports_mesh_shaders() is true.
+ */
+PT(Shader) Shader::
+load_mesh(SourceLanguage lang, const Filename &mesh, const Filename &fragment,
+          const Filename &task, const CompilerOptions &options) {
+  if (lang != SL_GLSL) {
+    shader_cat.error()
+      << "Only GLSL mesh shaders are currently supported.\n";
+    return nullptr;
+  }
+
+  PT(Shader) shader = new Shader(lang);
+  shader->_text._separate = true;
+  if (!task.empty() && !shader->do_read_source(Stage::TASK, task, options, nullptr)) {
+    return nullptr;
+  }
+  if (!shader->do_read_source(Stage::MESH, mesh, options, nullptr)) {
+    return nullptr;
+  }
+  if (!fragment.empty() && !shader->do_read_source(Stage::FRAGMENT, fragment, options, nullptr)) {
+    return nullptr;
+  }
+  if (!shader->link()) {
+    return nullptr;
+  }
+  shader->_filename = ShaderFile(mesh);
+  shader->_prepare_shader_pcollector = PStatCollector(std::string("Draw:Prepare:Shader:") + shader->_debug_name);
+  return shader;
+}
+
+/**
+ * Makes a mesh shader from the given strings: see load_mesh().
+ */
+PT(Shader) Shader::
+make_mesh(SourceLanguage lang, string mesh, string fragment, string task,
+          const CompilerOptions &options) {
+  if (lang != SL_GLSL) {
+    shader_cat.error()
+      << "Only GLSL mesh shaders are currently supported.\n";
+    return nullptr;
+  }
+
+  PT(Shader) shader = new Shader(lang);
+  shader->_filename = ShaderFile("created-shader");
+  shader->_text._separate = true;
+  if (!task.empty() && !shader->do_load_source(Stage::TASK, task, options, nullptr)) {
+    return nullptr;
+  }
+  if (!shader->do_load_source(Stage::MESH, mesh, options, nullptr)) {
+    return nullptr;
+  }
+  if (!fragment.empty() && !shader->do_load_source(Stage::FRAGMENT, fragment, options, nullptr)) {
+    return nullptr;
+  }
+  if (!shader->link()) {
+    shader_cat.error()
+      << "Failed to link shader.\n";
+    return nullptr;
+  }
+  shader->_debug_name = "created-shader";
+  shader->_prepare_shader_pcollector = PStatCollector("Draw:Prepare:Shader:created-shader");
+  return shader;
+}
+
+/**
  * Adds a module to a shader. Returns true if it was added successfully, false
- * if there was a problem. Modules must be added in increasing stage order and
- * only one module of a given stage type may be added.
+ * if there was a problem. Only one module of a given stage type may be added.
+ * Its inputs are linked to the outputs of the stage before it in the pipeline
+ * (see get_stage_order()), and the inputs of the stage after it, if present,
+ * to its outputs; the modules are kept in the order of the stage values.
  *
  * If the ShaderModule is already used in a different Shader object, this may
  * create a unique copy of it so that it may be modified to make it compatible
@@ -1185,9 +1254,19 @@ add_module(PT(ShaderModule) module) {
     return false;
   }
 
-  if (_module_mask > (1u << (uint32_t)stage)) {
+  // Mesh shading replaces the vertex processing stages.
+  const uint32_t vertex_stages =
+    (1u << (uint32_t)Stage::VERTEX) |
+    (1u << (uint32_t)Stage::TESS_CONTROL) |
+    (1u << (uint32_t)Stage::TESS_EVALUATION) |
+    (1u << (uint32_t)Stage::GEOMETRY);
+  const uint32_t mesh_stages =
+    (1u << (uint32_t)Stage::TASK) |
+    (1u << (uint32_t)Stage::MESH);
+  if (((_module_mask & vertex_stages) != 0 && ((1u << (uint32_t)stage) & mesh_stages) != 0) ||
+      ((_module_mask & mesh_stages) != 0 && ((1u << (uint32_t)stage) & vertex_stages) != 0)) {
     shader_cat.error()
-      << "Shader modules must be loaded in increasing stage order.\n";
+      << "Shader cannot have both mesh and vertex processing stages.\n";
     return false;
   }
 
@@ -1198,12 +1277,46 @@ add_module(PT(ShaderModule) module) {
   // Shader objects, by storing it as copy-on-write.
   COWPT(ShaderModule) cow_module = std::move(module);
 
-  if (!_modules.empty()) {
+  // Find the stages before and after this one in the pipeline.
+  int order = get_stage_order(stage);
+  LinkedModule *previous = nullptr;
+  LinkedModule *next = nullptr;
+  for (LinkedModule &linked : _modules) {
+    int other = get_stage_order(linked._module.get_read_pointer()->get_stage());
+    if (other < order && (previous == nullptr ||
+        other > get_stage_order(previous->_module.get_read_pointer()->get_stage()))) {
+      previous = &linked;
+    }
+    if (other > order && (next == nullptr ||
+        other < get_stage_order(next->_module.get_read_pointer()->get_stage()))) {
+      next = &linked;
+    }
+  }
+
+  if (next != nullptr && next->_module.get_read_pointer()->get_stage() != Stage::COMPUTE) {
+    // A later stage was added first (as when read from a bam file, in the
+    // order of the stage values): link its inputs up with this stage.
+    pmap<int, int> location_remap;
+    {
+      CPT(ShaderModule) next_module = next->_module.get_read_pointer();
+      if (!next_module->link_inputs(cow_module.get_read_pointer(), location_remap)) {
+        shader_cat.error()
+          << "Unable to match shader module interfaces.\n";
+        return false;
+      }
+    }
+    if (!location_remap.empty()) {
+      PT(ShaderModule) next_module = next->_module.get_write_pointer();
+      next_module->remap_input_locations(location_remap);
+    }
+  }
+
+  if (previous != nullptr) {
     // Link its inputs up with the previous stage.
     pmap<int, int> location_remap;
     {
       CPT(ShaderModule) module = cow_module.get_read_pointer();
-      if (!module->link_inputs(_modules.back()._module.get_read_pointer(), location_remap)) {
+      if (!module->link_inputs(previous->_module.get_read_pointer(), location_remap)) {
         shader_cat.error()
           << "Unable to match shader module interfaces.\n";
         return false;
@@ -1232,7 +1345,13 @@ add_module(PT(ShaderModule) module) {
     }
   }
 
-  _modules.push_back(std::move(cow_module));
+  // Keep the modules in the order of the stage values, which get_module()
+  // relies on.
+  auto it = _modules.begin();
+  while (it != _modules.end() && it->_module.get_read_pointer()->get_stage() < stage) {
+    ++it;
+  }
+  _modules.insert(it, LinkedModule(std::move(cow_module)));
   _module_mask |= (1u << (uint32_t)stage);
   _used_caps |= used_caps;
   _debug._assert_count += assert_count;

@@ -866,6 +866,22 @@ dispatch_compute(int num_groups_x, int num_groups_y, int num_groups_z) {
 }
 
 /**
+ * Draws with the currently bound mesh shader, launching the given numbers of
+ * task (or, without a task stage, mesh) workgroups.  A GSG without mesh
+ * shaders draws nothing, so a scene with a MeshDrawNode still renders; check
+ * get_supports_mesh_shaders() to draw something else in its place.
+ */
+void GraphicsStateGuardian::
+draw_mesh_tasks(int num_groups_x, int num_groups_y, int num_groups_z) {
+  static bool warned = false;
+  if (!warned) {
+    warned = true;
+    display_cat.warning()
+      << "Mesh shaders are not supported by " << get_type() << "; not drawing.\n";
+  }
+}
+
+/**
  * Looks up or creates a GeomMunger object to munge vertices appropriate to
  * this GSG for the indicated state.
  */

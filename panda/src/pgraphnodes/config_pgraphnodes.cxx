@@ -18,6 +18,7 @@
 #include "callbackNode.h"
 #include "callbackObject.h"
 #include "computeNode.h"
+#include "meshDrawNode.h"
 #include "directionalLight.h"
 #include "fadeLodNode.h"
 #include "fadeLodNodeData.h"
@@ -118,6 +119,7 @@ init_libpgraphnodes() {
   CallbackNode::init_type();
   CallbackObject::init_type();
   ComputeNode::init_type();
+  MeshDrawNode::init_type();
   DirectionalLight::init_type();
   FadeLODNode::init_type();
   FadeLODNodeData::init_type();
@@ -138,6 +140,7 @@ init_libpgraphnodes() {
   AmbientLight::register_with_read_factory();
   CallbackNode::register_with_read_factory();
   ComputeNode::register_with_read_factory();
+  MeshDrawNode::register_with_read_factory();
   DirectionalLight::register_with_read_factory();
   FadeLODNode::register_with_read_factory();
   LightNode::register_with_read_factory();

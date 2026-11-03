@@ -31,9 +31,41 @@ format_stage(Stage stage) {
     return "FRAGMENT";
   case Stage::COMPUTE:
     return "COMPUTE";
+  case Stage::TASK:
+    return "TASK";
+  case Stage::MESH:
+    return "MESH";
   }
 
   return "**invalid**";
+}
+
+/**
+ * Returns the place of the stage in the pipeline, which is not the order of
+ * the enum values: the task and mesh stages run before the fragment stage.
+ * Data flows from a stage to the next present stage of a higher order.
+ */
+int ShaderEnums::
+get_stage_order(Stage stage) {
+  switch (stage) {
+  case Stage::VERTEX:
+    return 0;
+  case Stage::TESS_CONTROL:
+    return 1;
+  case Stage::TESS_EVALUATION:
+    return 2;
+  case Stage::GEOMETRY:
+    return 3;
+  case Stage::TASK:
+    return 4;
+  case Stage::MESH:
+    return 5;
+  case Stage::FRAGMENT:
+    return 6;
+  case Stage::COMPUTE:
+    return 7;
+  }
+  return -1;
 }
 
 /**
@@ -175,6 +207,9 @@ output_capabilities(std::ostream &out, uint64_t caps) {
   }
   if (caps & C_ray_query_position_fetch) {
     out << "ray_query_position_fetch ";
+  }
+  if (caps & C_mesh_shader) {
+    out << "mesh_shader ";
   }
 }
 

@@ -413,6 +413,12 @@ compile_now(ShaderModule::Stage stage, std::istream &in,
   case ShaderModule::Stage::COMPUTE:
     language = EShLangCompute;
     break;
+  case ShaderModule::Stage::TASK:
+    language = EShLangTask;
+    break;
+  case ShaderModule::Stage::MESH:
+    language = EShLangMesh;
+    break;
   default:
     shader_cat.error()
       << "glslang compiler does not support " << stage << " shaders.\n";
@@ -467,9 +473,9 @@ compile_now(ShaderModule::Stage stage, std::istream &in,
       // samplers/images, so we need to ask glslang to combine these back.
       shader.setTextureSamplerTransformMode(EShTexSampTransUpgradeTextureRemoveSampler);
 
-      shader.setEnvInput(glslang::EShSource::EShSourceHlsl, (EShLanguage)stage, glslang::EShClient::EShClientOpenGL, 120);
+      shader.setEnvInput(glslang::EShSource::EShSourceHlsl, language, glslang::EShClient::EShClientOpenGL, 120);
     } else {
-      shader.setEnvInput(glslang::EShSource::EShSourceGlsl, (EShLanguage)stage, glslang::EShClient::EShClientOpenGL, 450);
+      shader.setEnvInput(glslang::EShSource::EShSourceGlsl, language, glslang::EShClient::EShClientOpenGL, 450);
 
       preamble_stream << "#extension GL_GOOGLE_cpp_style_line_directive : require\n";
       preamble_stream << "#extension GL_GOOGLE_include_directive : require\n";
@@ -482,7 +488,11 @@ compile_now(ShaderModule::Stage stage, std::istream &in,
   shader.setPreamble(preamble.c_str());
 
   shader.setEnvClient(glslang::EShClient::EShClientOpenGL, glslang::EShTargetOpenGL_450);
-  shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_0);
+  // Mesh shading (SPV_EXT_mesh_shader) needs SPIR-V 1.4.
+  bool is_mesh_stage = (stage == ShaderModule::Stage::TASK ||
+                        stage == ShaderModule::Stage::MESH);
+  shader.setEnvTarget(glslang::EShTargetSpv,
+                      is_mesh_stage ? glslang::EShTargetSpv_1_4 : glslang::EShTargetSpv_1_0);
 
   if (options.has_entry_point()) {
     shader.setSourceEntryPoint(options.get_entry_point().c_str());
@@ -520,7 +530,7 @@ compile_now(ShaderModule::Stage stage, std::istream &in,
       return nullptr;
     }
 
-    glslang::TIntermediate *ir = program.getIntermediate((EShLanguage)stage);
+    glslang::TIntermediate *ir = program.getIntermediate(language);
     nassertr(ir != nullptr, nullptr);
 
     spv::SpvBuildLogger logger;
@@ -563,7 +573,7 @@ compile_now(ShaderModule::Stage stage, std::istream &in,
   // Run it through the optimizer.
   std::vector<uint32_t> optimized;
   if (is_cg || options.get_optimize() != CompilerOptions::Optimize::NONE) {
-    spv_optimizer_t *opt = spvOptimizerCreate(SPV_ENV_UNIVERSAL_1_0);
+    spv_optimizer_t *opt = spvOptimizerCreate(is_mesh_stage ? SPV_ENV_UNIVERSAL_1_4 : SPV_ENV_UNIVERSAL_1_0);
     spvOptimizerSetMessageConsumer(opt, log_message);
 
     switch (options.get_optimize()) {

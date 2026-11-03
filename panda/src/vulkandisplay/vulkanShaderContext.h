@@ -42,6 +42,9 @@ private:
 public:
   using AccessChain = SpirVTransformPass::AccessChain;
 
+  // Room for a module of every stage, up to the mesh stage.
+  static constexpr size_t num_stages = (size_t)Shader::Stage::MESH + 1;
+
   VulkanShaderContext(Shader *shader);
   INLINE ~VulkanShaderContext();
 
@@ -153,7 +156,7 @@ public:
 
 private:
   VkPipelineBindPoint _bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
-  VkShaderModule _modules[(size_t)Shader::Stage::COMPUTE + 1];
+  VkShaderModule _modules[num_stages];
 
   VkShaderModule _alpha_test_modules[RenderAttrib::M_always - RenderAttrib::M_never] = {};
   ShaderModuleSpirV::InstructionStream _alpha_test_code;

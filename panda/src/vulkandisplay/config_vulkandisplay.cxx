@@ -85,6 +85,12 @@ ConfigVariableBool vulkan_ray_query
           "This also makes every memory allocation addressable from shaders, "
           "which ray tracing needs."));
 
+ConfigVariableBool vulkan_mesh_shader
+("vulkan-mesh-shader", true,
+ PRC_DESC("If this is set to true, and the video card supports task and mesh "
+          "shaders (VK_EXT_mesh_shader), they are enabled, so that a "
+          "MeshDrawNode can draw with a shader made by Shader.make_mesh()."));
+
 // Set once the process is exiting and this library is being unloaded.
 // Libraries are unloaded in the reverse order they were loaded, so by then
 // the Vulkan layers (loaded when the instance was created) have already been

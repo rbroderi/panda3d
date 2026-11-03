@@ -32,6 +32,13 @@ PUBLISHED:
     GEOMETRY,
     FRAGMENT,
     COMPUTE,
+
+    // Mesh shading (GL_EXT_mesh_shader): an optional task stage, then a mesh
+    // stage, replace the vertex, tessellation and geometry stages.  They come
+    // after COMPUTE so the values above, and 1 << stage as a Vulkan stage
+    // bit, stay as they were.
+    TASK,
+    MESH,
   };
 
   enum SourceLanguage {
@@ -143,6 +150,9 @@ PUBLISHED:
     // triangle's corners (GL_EXT_ray_tracing_position_fetch)
     C_ray_query = 1ull << 44,
     C_ray_query_position_fetch = 1ull << 45,
+
+    // Task and mesh shaders (GL_EXT_mesh_shader; Vulkan only)
+    C_mesh_shader = 1ull << 46,
   };
 
   enum Dependency {
@@ -220,6 +230,7 @@ PUBLISHED:
   };
 
   static std::string format_stage(Stage stage);
+  static int get_stage_order(Stage stage);
   static void output_capabilities(std::ostream &out, uint64_t capabilities);
   static int get_matrix_deps(StateMatrix input);
 };

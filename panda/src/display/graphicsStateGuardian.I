@@ -628,6 +628,16 @@ get_supports_ray_query_position_fetch() const {
 }
 
 /**
+ * Returns true if this GSG can draw with task and mesh shaders
+ * (GL_EXT_mesh_shader, see Shader::make_mesh and MeshDrawNode), false
+ * otherwise.  Only the Vulkan renderer can, on hardware that supports it.
+ */
+INLINE bool GraphicsStateGuardian::
+get_supports_mesh_shaders() const {
+  return (_supported_shader_caps & ShaderModule::C_mesh_shader) != 0;
+}
+
+/**
  * Returns true if this particular GSG supports GLSL shaders.
  * @deprecated This is now irrelevant, use get_supports_basic_shaders instead.
  */

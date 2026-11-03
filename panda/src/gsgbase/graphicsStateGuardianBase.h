@@ -185,6 +185,7 @@ public:
                                                 CompletionToken token = CompletionToken())=0;
 
   virtual void dispatch_compute(int size_x, int size_y, int size_z)=0;
+  virtual void draw_mesh_tasks(int size_x, int size_y, int size_z)=0;
 
   virtual PT(GeomMunger) get_geom_munger(const RenderState *state,
                                          Thread *current_thread)=0;

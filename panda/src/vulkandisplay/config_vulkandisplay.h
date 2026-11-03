@@ -27,6 +27,7 @@ extern ConfigVariableInt64 vulkan_staging_buffer_size;
 extern ConfigVariableBool vulkan_support_custom_border_color;
 extern ConfigVariableBool vulkan_validation;
 extern ConfigVariableBool vulkan_ray_query;
+extern ConfigVariableBool vulkan_mesh_shader;
 extern bool vulkan_process_exiting;
 
 extern EXPCL_VULKANDISPLAY void init_libvulkandisplay();

@@ -345,6 +345,26 @@ reset() {
     _supports_ray_position_fetch = false;
   }
 
+  // VK_EXT_mesh_shader: task and mesh shaders.
+  VkPhysicalDeviceMeshShaderFeaturesEXT ms_features = {
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
+    enabled_features.pNext,
+  };
+  if (pipe->_gpu_supports_mesh_shader && vulkan_mesh_shader) {
+    ms_features.taskShader = VK_TRUE;
+    ms_features.meshShader = VK_TRUE;
+    enabled_features.pNext = &ms_features;
+
+    extensions.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+    _supports_mesh_shader = true;
+    _push_constant_stages = VK_SHADER_STAGE_ALL_GRAPHICS |
+                            VK_SHADER_STAGE_TASK_BIT_EXT |
+                            VK_SHADER_STAGE_MESH_BIT_EXT;
+  } else {
+    _supports_mesh_shader = false;
+    _push_constant_stages = VK_SHADER_STAGE_ALL_GRAPHICS;
+  }
+
   // VK_KHR_portability_subset
   VkPhysicalDevicePortabilitySubsetFeaturesKHR portability_features = {
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR,
@@ -458,6 +478,25 @@ reset() {
     vulkandisplay_cat.info()
       << "Ray queries are enabled"
       << (_supports_ray_position_fetch ? ", with position fetch.\n" : ".\n");
+  }
+
+  if (_supports_mesh_shader) {
+    _vkCmdDrawMeshTasksEXT = (PFN_vkCmdDrawMeshTasksEXT)vkGetDeviceProcAddr(_device, "vkCmdDrawMeshTasksEXT");
+
+    VkPhysicalDeviceMeshShaderPropertiesEXT ms_props = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT,
+    };
+    VkPhysicalDeviceProperties2 props2 = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+      &ms_props,
+    };
+    vkGetPhysicalDeviceProperties2(pipe->_gpu, &props2);
+
+    vulkandisplay_cat.info()
+      << "Mesh shaders are enabled: up to " << ms_props.maxMeshOutputVertices
+      << " vertices and " << ms_props.maxMeshOutputPrimitives
+      << " primitives a mesh workgroup, " << ms_props.maxTaskPayloadSize
+      << " bytes of task payload.\n";
   }
 
   // Create a command pool to allocate command buffers from.
@@ -673,7 +712,7 @@ reset() {
     ranges[0].offset = 0;
     ranges[0].size = _vertex_push_constant_block_type->get_size_bytes();
 
-    ranges[1].stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS & ~VK_SHADER_STAGE_VERTEX_BIT;
+    ranges[1].stageFlags = _push_constant_stages & ~VK_SHADER_STAGE_VERTEX_BIT;
     ranges[1].offset = 0;
     ranges[1].size = _other_push_constant_block_type->get_size_bytes();
 
@@ -846,6 +885,9 @@ reset() {
   }
   if (_supports_ray_position_fetch) {
     _supported_shader_caps |= Shader::C_ray_query_position_fetch;
+  }
+  if (_supports_mesh_shader) {
+    _supported_shader_caps |= Shader::C_mesh_shader;
   }
 
   if (features.shaderCullDistance) {
@@ -2403,7 +2445,7 @@ prepare_shader(Shader *shader) {
   ranges[0].offset = 0;
   ranges[0].size = _vertex_push_constant_block_type->get_size_bytes();
 
-  ranges[1].stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS & ~VK_SHADER_STAGE_VERTEX_BIT;
+  ranges[1].stageFlags = _push_constant_stages & ~VK_SHADER_STAGE_VERTEX_BIT;
   ranges[1].offset = 0;
   ranges[1].size = _other_push_constant_block_type->get_size_bytes();
 
@@ -3996,6 +4038,37 @@ dispatch_compute(int num_groups_x, int num_groups_y, int num_groups_z) {
 }
 
 /**
+ * Draws with the currently bound mesh shader (see MeshDrawNode), launching
+ * the given numbers of task workgroups, or of mesh workgroups if it has no
+ * task stage.
+ */
+void VulkanGraphicsStateGuardian::
+draw_mesh_tasks(int num_groups_x, int num_groups_y, int num_groups_z) {
+  nassertv(_render_cmd);
+
+  VulkanShaderContext *sc = _current_sc;
+  if (sc == nullptr || !_supports_mesh_shader) {
+    return;
+  }
+  if (sc->_modules[(size_t)Shader::Stage::MESH] == VK_NULL_HANDLE) {
+    vulkandisplay_cat.error()
+      << "A MeshDrawNode needs a shader with a mesh stage, see Shader.make_mesh().\n";
+    return;
+  }
+
+  PStatGPUTimer timer(this, _draw_primitive_pcollector);
+
+  VkPipeline pipeline = sc->get_pipeline(this, _state_rs, nullptr,
+                                         VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+                                         1, _fb_config, false);
+  nassertv(pipeline != VK_NULL_HANDLE);
+  _vkCmdBindPipeline(_render_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+  _render_cmd.flush_barriers();
+
+  _vkCmdDrawMeshTasksEXT(_render_cmd, num_groups_x, num_groups_y, num_groups_z);
+}
+
+/**
  * Creates a new GeomMunger object to munge vertices appropriate to this GSG
  * for the indicated state.
  */
@@ -4052,7 +4125,7 @@ set_state_and_transform(const RenderState *state,
     CPT(TransformState) combined = _projection_mat->compose(trans);
     LMatrix4f matrix = LCAST(float, combined->get_mat());
     _vkCmdPushConstants(cmd, sc->_pipeline_layout,
-                        VK_SHADER_STAGE_ALL_GRAPHICS, 0, 64, matrix.get_data());
+                        _push_constant_stages, 0, 64, matrix.get_data());
   }
 
   if (sc->_color_scale_stage_mask != 0) {
@@ -4066,7 +4139,7 @@ set_state_and_transform(const RenderState *state,
         color = LCAST(float, target_color_scale->get_scale());
       }
       _vkCmdPushConstants(cmd, sc->_pipeline_layout,
-                          VK_SHADER_STAGE_ALL_GRAPHICS, 64, 16, color.get_data());
+                          _push_constant_stages, 64, 16, color.get_data());
     }
   }
 
@@ -6490,16 +6563,21 @@ make_pipeline(VulkanShaderContext *sc,
 
   PStatTimer timer(_make_pipeline_pcollector);
 
-  VkPipelineShaderStageCreateInfo stages[(size_t)Shader::Stage::COMPUTE + 1];
-  const VkShaderStageFlagBits stage_flags[(size_t)Shader::Stage::COMPUTE + 1] = {
+  VkPipelineShaderStageCreateInfo stages[VulkanShaderContext::num_stages];
+  const VkShaderStageFlagBits stage_flags[VulkanShaderContext::num_stages] = {
     VK_SHADER_STAGE_VERTEX_BIT,
     VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
     VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
     VK_SHADER_STAGE_GEOMETRY_BIT,
     VK_SHADER_STAGE_FRAGMENT_BIT,
     VK_SHADER_STAGE_COMPUTE_BIT,
+    VK_SHADER_STAGE_TASK_BIT_EXT,
+    VK_SHADER_STAGE_MESH_BIT_EXT,
   };
   uint32_t num_stages = 0;
+
+  // A mesh pipeline reads no vertices: the key has no vertex format.
+  bool is_mesh = sc->_modules[(size_t)Shader::Stage::MESH] != VK_NULL_HANDLE;
 
   VkSpecializationInfo fragment_spec_info;
   VkSpecializationMapEntry fragment_spec_map_entry;
@@ -6526,12 +6604,13 @@ make_pipeline(VulkanShaderContext *sc,
     fragment_spec_map_entry.size = 4;
   }
 
-  bool have_anim = sc->_anim_attrib_locations != 0u &&
+  bool have_anim = !is_mesh &&
+    sc->_anim_attrib_locations != 0u &&
     _max_vertex_transforms > 0 &&
     key._format->get_animation().get_animation_type() == Geom::AT_hardware;
 
-  for (size_t i = 0; i < (size_t)Shader::Stage::COMPUTE; ++i) {
-    if (sc->_modules[i] != VK_NULL_HANDLE) {
+  for (size_t i = 0; i < VulkanShaderContext::num_stages; ++i) {
+    if (i != (size_t)Shader::Stage::COMPUTE && sc->_modules[i] != VK_NULL_HANDLE) {
       VkPipelineShaderStageCreateInfo &stage = stages[num_stages++];
       stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
       stage.pNext = nullptr;
@@ -6560,7 +6639,7 @@ make_pipeline(VulkanShaderContext *sc,
 
   // Describe each vertex input binding (ie. GeomVertexArray).  Leave two extra
   // slots for the "color" and "null" bindings, see below.
-  size_t num_arrays = key._format->get_num_arrays();
+  size_t num_arrays = is_mesh ? 0 : key._format->get_num_arrays();
   VkVertexInputBindingDescription *binding_descs = (VkVertexInputBindingDescription *)
     alloca(sizeof(VkVertexInputBindingDescription) * (num_arrays + 3));
 
@@ -6986,7 +7065,7 @@ make_pipeline(VulkanShaderContext *sc,
     }
   }
   else if (topology != VK_PRIMITIVE_TOPOLOGY_POINT_LIST &&
-           _supports_extended_dynamic_state2) {
+           _supports_extended_dynamic_state2 && !is_mesh) {
     dynamic_states[2] = VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY_EXT;
 #ifdef __APPLE__
     num_dynamic_states = 3;
@@ -7009,8 +7088,8 @@ make_pipeline(VulkanShaderContext *sc,
   pipeline_info.flags = 0;
   pipeline_info.stageCount = num_stages;
   pipeline_info.pStages = stages;
-  pipeline_info.pVertexInputState = &vertex_info;
-  pipeline_info.pInputAssemblyState = &assembly_info;
+  pipeline_info.pVertexInputState = is_mesh ? nullptr : &vertex_info;
+  pipeline_info.pInputAssemblyState = is_mesh ? nullptr : &assembly_info;
   pipeline_info.pTessellationState = have_tess_state ? &tess_info : nullptr;
   pipeline_info.pViewportState = &viewport_info;
   pipeline_info.pRasterizationState = &raster_info;

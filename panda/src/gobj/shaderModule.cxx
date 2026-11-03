@@ -36,6 +36,11 @@ ShaderModule(Stage stage) : _stage(stage), _used_caps(C_basic_shader) {
     _used_caps |= C_compute_shader;
     break;
 
+  case Stage::TASK:
+  case Stage::MESH:
+    _used_caps |= C_mesh_shader;
+    break;
+
   default:
     break;
   }

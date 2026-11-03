@@ -89,6 +89,7 @@ public:
   bool _gpu_supports_inline_uniform_block = false;
   bool _gpu_supports_ray_query = false;
   bool _gpu_supports_ray_position_fetch = false;
+  bool _gpu_supports_mesh_shader = false;
   VkPhysicalDeviceMemoryProperties _memory_properties;
   pvector<VkQueueFamilyProperties> _queue_families;
   VkDeviceSize _max_allocation_size;

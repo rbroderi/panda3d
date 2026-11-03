@@ -2,6 +2,7 @@ set(P3PGRAPHNODES_HEADERS
   ambientLight.h ambientLight.I
   callbackNode.h callbackNode.I
   computeNode.h computeNode.I
+  meshDrawNode.h meshDrawNode.I
   config_pgraphnodes.h
   directionalLight.h directionalLight.I
   fadeLodNode.I fadeLodNode.h fadeLodNodeData.h
@@ -25,6 +26,7 @@ set(P3PGRAPHNODES_SOURCES
   ambientLight.cxx
   callbackNode.cxx
   computeNode.cxx
+  meshDrawNode.cxx
   config_pgraphnodes.cxx
   directionalLight.cxx
   fadeLodNode.cxx fadeLodNodeData.cxx

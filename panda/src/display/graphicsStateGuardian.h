@@ -166,6 +166,7 @@ PUBLISHED:
   INLINE bool get_supports_compute_shaders() const;
   INLINE bool get_supports_ray_query() const;
   INLINE bool get_supports_ray_query_position_fetch() const;
+  INLINE bool get_supports_mesh_shaders() const;
   INLINE bool get_supports_glsl() const;
   INLINE bool get_supports_hlsl() const;
   INLINE bool get_supports_stencil() const;
@@ -224,6 +225,7 @@ PUBLISHED:
   MAKE_PROPERTY(supports_compute_shaders, get_supports_compute_shaders);
   MAKE_PROPERTY(supports_ray_query, get_supports_ray_query);
   MAKE_PROPERTY(supports_ray_query_position_fetch, get_supports_ray_query_position_fetch);
+  MAKE_PROPERTY(supports_mesh_shaders, get_supports_mesh_shaders);
   MAKE_PROPERTY(supports_glsl, get_supports_glsl);
   MAKE_PROPERTY(supports_hlsl, get_supports_hlsl);
   MAKE_PROPERTY(supports_stencil, get_supports_stencil);
@@ -349,6 +351,7 @@ public:
   virtual void issue_latency_query(int pstats_index);
 
   virtual void dispatch_compute(int size_x, int size_y, int size_z);
+  virtual void draw_mesh_tasks(int size_x, int size_y, int size_z);
 
   virtual PT(GeomMunger) get_geom_munger(const RenderState *state,
                                          Thread *current_thread);

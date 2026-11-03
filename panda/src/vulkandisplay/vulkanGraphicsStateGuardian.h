@@ -109,6 +109,7 @@ public:
   void replace_timer_query_pool();
 
   virtual void dispatch_compute(int size_x, int size_y, int size_z);
+  virtual void draw_mesh_tasks(int size_x, int size_y, int size_z);
 
   virtual PT(GeomMunger) make_geom_munger(const RenderState *state,
                                           Thread *current_thread);
@@ -445,6 +446,11 @@ private:
   bool _supports_extended_dynamic_state2_patch_control_points = false;
   bool _supports_ray_query = false;
   bool _supports_ray_position_fetch = false;
+  bool _supports_mesh_shader = false;
+
+  // The stages the push constants are visible to: every graphics stage,
+  // including task and mesh where mesh shaders are enabled.
+  VkShaderStageFlags _push_constant_stages = VK_SHADER_STAGE_ALL_GRAPHICS;
 
   // Bottom-level acceleration structures, built from RayTraceMesh objects
   // when a scene using them is first used.  The GSG holds a reference to each
@@ -503,6 +509,9 @@ private:
   PFN_vkGetBufferDeviceAddress _vkGetBufferDeviceAddress = nullptr;
   PFN_vkCmdCopyAccelerationStructureKHR _vkCmdCopyAccelerationStructureKHR = nullptr;
   PFN_vkCmdWriteAccelerationStructuresPropertiesKHR _vkCmdWriteAccelerationStructuresPropertiesKHR = nullptr;
+
+  // VK_EXT_mesh_shader
+  PFN_vkCmdDrawMeshTasksEXT _vkCmdDrawMeshTasksEXT = nullptr;
 
   static PStatCollector _pipeline_cache_inline_hits_pcollector;
   static PStatCollector _pipeline_cache_main_hits_pcollector;

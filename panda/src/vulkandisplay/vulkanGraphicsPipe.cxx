@@ -402,8 +402,23 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
       }
     }
 
+    // Mesh shaders need SPIR-V 1.4, which is core in 1.2.
+    bool has_mesh_shader_ext =
+      _gpu_properties.apiVersion >= VK_MAKE_VERSION(1, 2, 0) &&
+      has_device_extension(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+    VkPhysicalDeviceMeshShaderFeaturesEXT ms_features = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
+      features2.pNext,
+    };
+    if (has_mesh_shader_ext) {
+      features2.pNext = &ms_features;
+    }
+
     pVkGetPhysicalDeviceFeatures2(_gpu, &features2);
     _gpu_features = features2.features;
+    _gpu_supports_mesh_shader = has_mesh_shader_ext
+                             && ms_features.meshShader
+                             && ms_features.taskShader;
     _gpu_supports_ray_query = has_ray_query_exts
                            && rq_features.rayQuery
                            && as_features.accelerationStructure
@@ -439,6 +454,7 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
     _gpu_supports_inline_uniform_block = false;
     _gpu_supports_ray_query = false;
     _gpu_supports_ray_position_fetch = false;
+    _gpu_supports_mesh_shader = false;
   }
 
   // Default the maximum allocation size to the largest of the heaps.

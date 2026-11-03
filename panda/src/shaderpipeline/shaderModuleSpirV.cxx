@@ -127,6 +127,10 @@ ShaderModuleSpirV(Stage stage, std::vector<uint32_t> words, const CompilerOption
         _used_caps |= C_ray_query_position_fetch;
         break;
 
+      case spv::CapabilityMeshShadingEXT:
+        _used_caps |= C_mesh_shader;
+        break;
+
       default:
         break;
       }
@@ -435,7 +439,7 @@ link_inputs(const ShaderModule *previous, pmap<int, int> &remap) const {
   if (!previous->is_of_type(ShaderModuleSpirV::get_class_type())) {
     return false;
   }
-  if (previous->get_stage() >= get_stage()) {
+  if (get_stage_order(previous->get_stage()) >= get_stage_order(get_stage())) {
     return false;
   }
 
@@ -555,7 +559,10 @@ disassemble(std::ostream &out) const {
 void ShaderModuleSpirV::
 post_analyze(const SpirVResultDatabase &db) {
 #ifndef NDEBUG
-  _instructions.validate();
+  // Mesh shading needs SPIR-V 1.4; validate each module as its own version.
+  bool spirv_1_4 = _instructions.get_data_size() > 1 &&
+                   _instructions.get_data()[1] >= 0x00010400u;
+  _instructions.validate(spirv_1_4 ? SPV_ENV_UNIVERSAL_1_4 : SPV_ENV_UNIVERSAL_1_0);
 #endif
 
   _uniform_struct_types.clear();

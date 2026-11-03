@@ -104,6 +104,13 @@ PUBLISHED:
                          const CompilerOptions &options = CompilerOptions());
   static PT(Shader) make_compute(SourceLanguage lang, std::string body,
                                  const CompilerOptions &options = CompilerOptions());
+  static PT(Shader) load_mesh(SourceLanguage lang, const Filename &mesh,
+                              const Filename &fragment,
+                              const Filename &task = "",
+                              const CompilerOptions &options = CompilerOptions());
+  static PT(Shader) make_mesh(SourceLanguage lang, std::string mesh,
+                              std::string fragment, std::string task = "",
+                              const CompilerOptions &options = CompilerOptions());
 
   INLINE Filename get_filename(DeprecatedShaderType type = ST_none) const;
   INLINE void set_filename(DeprecatedShaderType type, const Filename &filename);
