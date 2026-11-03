@@ -186,6 +186,7 @@ reset() {
   v_1_2_features.timelineSemaphore = VK_TRUE;
   v_1_2_features.shaderFloat16 = pipe->_gpu_supports_shader_float16;
   v_1_2_features.shaderInt8 = pipe->_gpu_supports_shader_int8;
+  v_1_2_features.shaderSubgroupExtendedTypes = pipe->_gpu_supports_subgroup_extended_types;
 #ifdef DO_PSTATS
   v_1_2_features.hostQueryReset = VK_TRUE;
 #endif

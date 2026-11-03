@@ -95,6 +95,7 @@ public:
   bool _gpu_supports_texture_table_update_after_bind = false;
   bool _gpu_supports_shader_float16 = false;
   bool _gpu_supports_shader_int8 = false;
+  bool _gpu_supports_subgroup_extended_types = false;
   bool _gpu_supports_storage_buffer_16bit = false;
   bool _gpu_supports_uniform_and_storage_buffer_16bit = false;
   bool _gpu_supports_storage_push_constant_16bit = false;

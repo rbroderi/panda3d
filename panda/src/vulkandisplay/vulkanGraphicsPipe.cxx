@@ -442,6 +442,14 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
     if (_gpu_properties.apiVersion >= VK_MAKE_VERSION(1, 2, 0)) {
       features2.pNext = &f16_features;
     }
+    // Subgroup operations on 8-, 16- and 64-bit types (core in 1.2).
+    VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures set_features = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES,
+      features2.pNext,
+    };
+    if (_gpu_properties.apiVersion >= VK_MAKE_VERSION(1, 2, 0)) {
+      features2.pNext = &set_features;
+    }
     VkPhysicalDevice16BitStorageFeatures s16_features = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES,
       features2.pNext,
@@ -467,6 +475,7 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
     _gpu_features = features2.features;
     _gpu_supports_shader_float16 = f16_features.shaderFloat16;
     _gpu_supports_shader_int8 = f16_features.shaderInt8;
+    _gpu_supports_subgroup_extended_types = set_features.shaderSubgroupExtendedTypes;
     _gpu_supports_storage_buffer_16bit = s16_features.storageBuffer16BitAccess;
     _gpu_supports_uniform_and_storage_buffer_16bit = s16_features.uniformAndStorageBuffer16BitAccess;
     _gpu_supports_storage_push_constant_16bit = s16_features.storagePushConstant16;
@@ -534,6 +543,7 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
     _gpu_supports_texture_table_update_after_bind = false;
     _gpu_supports_shader_float16 = false;
     _gpu_supports_shader_int8 = false;
+    _gpu_supports_subgroup_extended_types = false;
     _gpu_supports_storage_buffer_16bit = false;
     _gpu_supports_uniform_and_storage_buffer_16bit = false;
     _gpu_supports_storage_push_constant_16bit = false;
