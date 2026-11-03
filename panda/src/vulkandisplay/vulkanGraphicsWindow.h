@@ -82,6 +82,9 @@ private:
   typedef pvector<SwapBuffer> SwapBuffers;
   SwapBuffers _swap_buffers;
   uint32_t _image_index = 0;
+  // The swapchain image last rendered into, which a screenshot taken
+  // between frames copies (UINT32_MAX before the first frame).
+  uint32_t _rendered_index = UINT32_MAX;
 
   VulkanTextureContext *_ms_color_tc = nullptr;
   VulkanTextureContext *_depth_stencil_tc = nullptr;

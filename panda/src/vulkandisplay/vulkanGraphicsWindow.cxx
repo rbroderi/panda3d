@@ -136,6 +136,16 @@ begin_frame(FrameMode mode, Thread *current_thread) {
   copy_async_screenshot();
 
   if (mode == FM_refresh) {
+    // A screenshot between frames copies the image last rendered, not the
+    // one just acquired; left alone, the GSG would still point at whichever
+    // framebuffer it drew last, perhaps an offscreen buffer.
+    if (_rendered_index < _swap_buffers.size()) {
+      vkgsg->_fb_color_tc = _swap_buffers[_rendered_index]._tc;
+      vkgsg->_fb_depth_tc = _depth_stencil_tc;
+    } else {
+      vkgsg->_fb_color_tc = nullptr;
+      vkgsg->_fb_depth_tc = nullptr;
+    }
     return true;
   }
 
@@ -209,15 +219,19 @@ end_frame(FrameMode mode, Thread *current_thread) {
                                    VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
                                    0);
     //}
+    _rendered_index = _image_index;
   }
-  else if (buffer._tc->_layout != VK_IMAGE_LAYOUT_PRESENT_SRC_KHR &&
-           buffer._tc->_layout != VK_IMAGE_LAYOUT_UNDEFINED) {
-    // A screenshot taken between frames copies from the image that is still
-    // waiting to be presented, so transition it back to the present state.
-    vkgsg->_render_cmd.add_barrier(buffer._tc,
-                                   VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                                   VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
-                                   0);
+  else if (_rendered_index < _swap_buffers.size()) {
+    // A screenshot taken between frames copies from the image last rendered,
+    // so transition it back to the present state.
+    VulkanTextureContext *tc = _swap_buffers[_rendered_index]._tc;
+    if (tc->_layout != VK_IMAGE_LAYOUT_PRESENT_SRC_KHR &&
+        tc->_layout != VK_IMAGE_LAYOUT_UNDEFINED) {
+      vkgsg->_render_cmd.add_barrier(tc,
+                                     VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                                     VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+                                     0);
+    }
   }
 
   // Note: this will close the command buffer, and unsignal the previous
@@ -613,6 +627,7 @@ destroy_swapchain() {
 
   _swapchain_size.set(-1, -1);
   _image_index = 0;
+  _rendered_index = UINT32_MAX;
 }
 
 /**
