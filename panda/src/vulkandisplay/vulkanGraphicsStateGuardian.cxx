@@ -1786,8 +1786,11 @@ create_texture(VulkanTextureContext *tc) {
 
   bool render_to_texture = false;
   if (!is_buffer) {
-    // Image texture.  Is the size supported for this format?
-    VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    // Image texture.  Is the size supported for this format?  Any texture
+    // may be read back (extract_texture_data), so each is a transfer source.
+    VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT |
+                              VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                              VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     if (fmt_props.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) {
       usage |= VK_IMAGE_USAGE_STORAGE_BIT;
     }
