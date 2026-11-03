@@ -450,6 +450,20 @@ reset() {
          "a compute pipeline's subgroup size.\n";
   }
 
+  // Image robustness (core in 1.3): a read out of an image's bounds gives
+  // zero and a write there does nothing, as shaders written for D3D expect.
+  VkPhysicalDeviceImageRobustnessFeatures ir_features = {
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_ROBUSTNESS_FEATURES,
+    enabled_features.pNext,
+  };
+  if (pipe->_gpu_supports_image_robustness) {
+    ir_features.robustImageAccess = VK_TRUE;
+    enabled_features.pNext = &ir_features;
+    if (pipe->_gpu_properties.apiVersion < VK_MAKE_VERSION(1, 3, 0)) {
+      extensions.push_back(VK_EXT_IMAGE_ROBUSTNESS_EXTENSION_NAME);
+    }
+  }
+
   // VK_KHR_portability_subset
   VkPhysicalDevicePortabilitySubsetFeaturesKHR portability_features = {
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR,

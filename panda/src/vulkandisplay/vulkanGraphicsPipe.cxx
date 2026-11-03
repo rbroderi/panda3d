@@ -471,8 +471,21 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
       features2.pNext = &ssc_features;
     }
 
+    // Image reads and writes out of bounds are harmless (core in 1.3).
+    bool has_image_robustness =
+      _gpu_properties.apiVersion >= VK_MAKE_VERSION(1, 3, 0) ||
+      has_device_extension(VK_EXT_IMAGE_ROBUSTNESS_EXTENSION_NAME);
+    VkPhysicalDeviceImageRobustnessFeatures ir_features = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_ROBUSTNESS_FEATURES,
+      features2.pNext,
+    };
+    if (has_image_robustness) {
+      features2.pNext = &ir_features;
+    }
+
     pVkGetPhysicalDeviceFeatures2(_gpu, &features2);
     _gpu_features = features2.features;
+    _gpu_supports_image_robustness = has_image_robustness && ir_features.robustImageAccess;
     _gpu_supports_shader_float16 = f16_features.shaderFloat16;
     _gpu_supports_shader_int8 = f16_features.shaderInt8;
     _gpu_supports_subgroup_extended_types = set_features.shaderSubgroupExtendedTypes;
@@ -544,6 +557,7 @@ VulkanGraphicsPipe() : _max_allocation_size(0) {
     _gpu_supports_shader_float16 = false;
     _gpu_supports_shader_int8 = false;
     _gpu_supports_subgroup_extended_types = false;
+    _gpu_supports_image_robustness = false;
     _gpu_supports_storage_buffer_16bit = false;
     _gpu_supports_uniform_and_storage_buffer_16bit = false;
     _gpu_supports_storage_push_constant_16bit = false;
