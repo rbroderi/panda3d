@@ -54,6 +54,12 @@ def rate_texture(gsg, rate_of):
 
 
 def render(engine, buffer, rate):
+    return render_regions(engine, buffer, [((0, 1, 0, 1), rate)])
+
+
+def render_regions(engine, buffer, regions):
+    """Draw the card in each of regions, (dimensions, rate texture or None),
+    in that order, into one frame."""
     root = core.NodePath("root")
     cm = core.CardMaker("card")
     cm.set_frame(-1, 1, -1, 1)
@@ -66,13 +72,18 @@ def render(engine, buffer, rate):
 
     tex = core.Texture("result")
     buffer.add_render_texture(tex, core.GraphicsOutput.RTM_copy_ram)
-    region = buffer.make_display_region()
-    region.camera = cam
-    if rate is not None:
-        region.set_shading_rate_texture(rate)
+    made = []
+    for sort, (dimensions, rate) in enumerate(regions):
+        region = buffer.make_display_region(*dimensions)
+        region.sort = sort
+        region.camera = cam
+        if rate is not None:
+            region.set_shading_rate_texture(rate)
+        made.append(region)
     engine.render_frame()
     engine.render_frame()
-    buffer.remove_display_region(region)
+    for region in made:
+        buffer.remove_display_region(region)
     buffer.clear_render_textures()
     image = core.PNMImage()
     assert tex.store(image)
@@ -118,3 +129,19 @@ def test_coarse_half(vk_output):
             assert coarse(image, x, y) == (x >= SIZE // 2)
     image = render(engine, buffer, None)
     assert not any(coarse(image, x, y) for x in range(0, SIZE - 1, 2) for y in range(0, SIZE - 1, 2))
+
+
+@pytest.mark.parametrize("first", ["coarse", "full"])
+def test_regions_with_and_without(vk_output, first):
+    # The pass keeps the texture attached for both regions: the one without
+    # it still shades every pixel, whichever is drawn first.
+    engine, buffer = vk_output
+    rate = rate_texture(buffer.gsg, lambda x, y: RATE_2X2)
+    left, right = (0, 0.5, 0, 1), (0.5, 1, 0, 1)
+    regions = [(left, rate), (right, None)]
+    if first == "full":
+        regions.reverse()
+    image = render_regions(engine, buffer, regions)
+    for y in range(0, SIZE - 1, 2):
+        for x in range(0, SIZE - 1, 2):
+            assert coarse(image, x, y) == (x < SIZE // 2)

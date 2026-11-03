@@ -523,6 +523,8 @@ reset() {
       &fsr_props,
     };
     vkGetPhysicalDeviceProperties2(pipe->_gpu, &props2);
+    _vkCmdSetFragmentShadingRateKHR = (PFN_vkCmdSetFragmentShadingRateKHR)
+      vkGetDeviceProcAddr(_device, "vkCmdSetFragmentShadingRateKHR");
     // The finest texels the device allows.
     _fragment_shading_rate_texel_size.set(
       (int)fsr_props.minFragmentShadingRateAttachmentTexelSize.width,
@@ -4667,16 +4669,20 @@ prepare_display_region(DisplayRegionPipelineReader *dr) {
   nassertv(dr != nullptr);
   GraphicsStateGuardian::prepare_display_region(dr);
 
-  // A region with another shading rate texture (or none) than the pass was
-  // begun with ends it and resumes it with that one.
+  // The pass keeps the shading rate texture it was begun with: a region
+  // without one shades every pixel, one with that one takes its rate, and
+  // only one with another texture ends the pass and resumes it with that.
   if (_supports_fragment_shading_rate && _rendering_fb != nullptr) {
     Texture *rate = dr->get_shading_rate_texture();
-    if (rate != _shading_rate_texture) {
+    if (rate != nullptr && rate != _shading_rate_texture) {
       VulkanFramebuffer *fb = _rendering_fb;
       DrawableRegion *region = _rendering_region;
       fb->end_rendering(this);
       _shading_rate_texture = rate;
       fb->begin_rendering(this, region, true);
+    }
+    if (_shading_rate_attached) {
+      use_shading_rate(rate != nullptr);
     }
   }
 
@@ -6895,6 +6901,24 @@ choose_fb_config(FbConfig &out, FrameBufferProperties &props,
 }
 
 /**
+ * In a pass with a shading rate attachment, has the draws that follow take
+ * its rate (used) or shade every pixel.  The combiner is the pipelines'
+ * dynamic state, so this neither ends the pass nor needs other pipelines.
+ */
+void VulkanGraphicsStateGuardian::
+use_shading_rate(bool used) {
+  nassertv(_shading_rate_attached);
+  _shading_rate_used = used;
+  VkExtent2D one = {1, 1};
+  VkFragmentShadingRateCombinerOpKHR ops[2] = {
+    VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR,
+    used ? VK_FRAGMENT_SHADING_RATE_COMBINER_OP_REPLACE_KHR
+         : VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR,
+  };
+  _vkCmdSetFragmentShadingRateKHR(_render_cmd, &one, ops);
+}
+
+/**
  * Returns the id of the given framebuffer config with a shading rate
  * attachment added, which pipelines drawn in such a pass must be made for.
  */
@@ -7432,7 +7456,7 @@ make_pipeline(VulkanShaderContext *sc,
   blend_info.blendConstants[3] = constant_color[3];
 
   // Tell Vulkan that we'll be specifying the viewport and scissor separately.
-  VkDynamicState dynamic_states[4] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+  VkDynamicState dynamic_states[5] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
   uint32_t num_dynamic_states = 2;
   bool have_tess_state = false;
   VkPipelineTessellationStateCreateInfo tess_info;
@@ -7457,6 +7481,12 @@ make_pipeline(VulkanShaderContext *sc,
     dynamic_states[3] = VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE_EXT;
     num_dynamic_states = 4;
 #endif
+  }
+
+  // In a pass with a shading rate attachment, whether a region's draws take
+  // its rate is set per region (use_shading_rate).
+  if (fb_config._shading_rate) {
+    dynamic_states[num_dynamic_states++] = VK_DYNAMIC_STATE_FRAGMENT_SHADING_RATE_KHR;
   }
 
   VkPipelineDynamicStateCreateInfo dynamic_info;
@@ -7493,7 +7523,8 @@ make_pipeline(VulkanShaderContext *sc,
   render_info.pNext = nullptr;
 
   // Drawn in a pass with a shading rate attachment: its rate replaces the
-  // pipeline's own (one fragment a pixel).
+  // pipeline's own (one fragment a pixel) where the region takes it; the
+  // combiners are dynamic state (use_shading_rate), these the defaults.
   VkPipelineFragmentShadingRateStateCreateInfoKHR fsr_info = {
     VK_STRUCTURE_TYPE_PIPELINE_FRAGMENT_SHADING_RATE_STATE_CREATE_INFO_KHR,
   };

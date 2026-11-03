@@ -457,9 +457,15 @@ private:
   bool _supports_ray_position_fetch = false;
   bool _supports_mesh_shader = false;
 
-  // The shading rate texture of the DisplayRegion being drawn, if any: the
-  // rendering pass is begun with it as its shading rate attachment.
+  // The rendering pass's shading rate texture, if any: the first its output's
+  // display regions have, attached for the whole pass (_shading_rate_attached
+  // if it could be).  Each region's draws take its rate, or shade every pixel
+  // (use_shading_rate: the pipelines' dynamic combiner), so a region without
+  // one does not end the pass; only a region with another texture does.
   PT(Texture) _shading_rate_texture;
+  bool _shading_rate_attached = false;
+  bool _shading_rate_used = false;
+  void use_shading_rate(bool used);
   bool _supports_texture_tables = false;
   bool _texture_table_update_after_bind = false;
 
@@ -514,6 +520,7 @@ private:
   PFN_vkCmdDrawIndexed _vkCmdDrawIndexed;
   PFN_vkCmdEndRendering _vkCmdEndRendering;
   PFN_vkCmdPushConstants _vkCmdPushConstants;
+  PFN_vkCmdSetFragmentShadingRateKHR _vkCmdSetFragmentShadingRateKHR = nullptr;
   PFN_vkCmdSetPatchControlPointsEXT _vkCmdSetPatchControlPointsEXT;
   PFN_vkCmdSetPrimitiveRestartEnable _vkCmdSetPrimitiveRestartEnable;
   PFN_vkCmdSetPrimitiveTopology _vkCmdSetPrimitiveTopology;

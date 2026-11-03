@@ -15,6 +15,8 @@
 #include "vulkanGraphicsStateGuardian.h"
 #include "vulkanTextureContext.h"
 #include "drawableRegion.h"
+#include "displayRegion.h"
+#include "graphicsOutput.h"
 
 /**
  * Returns true if the given attachment is a depth and/or stencil attachment,
@@ -149,9 +151,26 @@ begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region,
   vkgsg->_fb_color_tc = nullptr;
   vkgsg->_fb_depth_tc = nullptr;
 
-  // A new pass starts at full rate, till a display region asks otherwise.
+  // A new pass is begun with the first shading rate texture its output's
+  // display regions have, kept for the whole pass (prepare_display_region
+  // has each region take its rate or not), so the pass need not end and
+  // resume, resolving its multisampled attachments each time, as the regions
+  // change.
   if (!resume) {
     vkgsg->_shading_rate_texture = nullptr;
+    // The region is always the window or buffer being rendered (and Panda
+    // is built without RTTI).
+    GraphicsOutput *output = static_cast<GraphicsOutput *>(region);
+    if (vkgsg->_supports_fragment_shading_rate) {
+      int count = output->get_num_active_display_regions();
+      for (int i = 0; i < count; ++i) {
+        PT(DisplayRegion) dr = output->get_active_display_region(i);
+        if (dr != nullptr && dr->get_shading_rate_texture() != nullptr) {
+          vkgsg->_shading_rate_texture = dr->get_shading_rate_texture();
+          break;
+        }
+      }
+    }
   }
 
   for (Attachment &attach : _attachments) {
@@ -277,6 +296,7 @@ begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region,
     VK_STRUCTURE_TYPE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_INFO_KHR,
   };
   Texture *rate = vkgsg->_shading_rate_texture;
+  vkgsg->_shading_rate_attached = false;
   if (rate != nullptr) {
     VulkanTextureContext *rate_tc = vkgsg->use_texture(rate,
       VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR,
@@ -292,6 +312,7 @@ begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region,
       rate_info.shadingRateAttachmentTexelSize.height = texel[1];
       render_info.pNext = &rate_info;
       config_id = vkgsg->get_shading_rate_fb_config(_config_id);
+      vkgsg->_shading_rate_attached = true;
     } else {
       static bool warned = false;
       if (!warned) {
@@ -306,6 +327,10 @@ begin_rendering(VulkanGraphicsStateGuardian *vkgsg, DrawableRegion *region,
 
   cmd.flush_barriers();
   vkgsg->_vkCmdBeginRendering(cmd, &render_info);
+  if (vkgsg->_shading_rate_attached) {
+    // Every pixel till a region takes the rate; a resumed pass as it was.
+    vkgsg->use_shading_rate(resume && vkgsg->_shading_rate_used);
+  }
   vkgsg->_fb_config = config_id;
   vkgsg->_rendering_fb = this;
   vkgsg->_rendering_region = region;
