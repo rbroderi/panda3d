@@ -69,7 +69,7 @@ def test_ray_trace_follower_relative_to_moves():
     # The node stays put, but the space the instances are placed in moves.
     world.set_pos(0, 0, 2)
     assert follower.update() == 1
-    assert scene.get_instance_transform(0) == core.LMatrix4.translate_mat(0, 0, -2)
+    assert scene.get_instance_transform(0).almost_equal(core.LMatrix4.translate_mat(0, 0, -2))
 
 
 def test_ray_trace_follower_shared_node():
