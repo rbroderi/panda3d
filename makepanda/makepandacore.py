@@ -597,9 +597,13 @@ def GetInterrogateDir():
         if INTERROGATE_DIR:
             return INTERROGATE_DIR
 
-        dir = os.path.join(GetOutputDir(), "tmp", "interrogate")
+        # Fork: interrogate with wrapper counting and GC for subclasses
+        # (rbroderi/interrogate track-python-wrappers), until it is released.
+        # Built from source by pip, so it needs CMake and the compiler.
+        commit = "727995312bc7089fd8c43a0eea84de103ed0c003"
+        dir = os.path.join(GetOutputDir(), "tmp", "interrogate-" + commit[:10])
         if not os.path.isdir(os.path.join(dir, "panda3d_interrogate-0.11.2.dist-info")):
-            oscmd("\"%s\" -m pip install --force-reinstall --upgrade -t \"%s\" panda3d-interrogate==0.11.2" % (sys.executable, dir))
+            oscmd("\"%s\" -m pip install --force-reinstall --upgrade -t \"%s\" \"panda3d-interrogate @ git+https://github.com/rbroderi/interrogate.git@%s\"" % (sys.executable, dir, commit))
 
         INTERROGATE_DIR = dir
 
