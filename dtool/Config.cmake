@@ -263,8 +263,8 @@ if(BUILD_INTERROGATE)
   ExternalProject_Add(
     panda3d-interrogate
 
-    GIT_REPOSITORY https://github.com/panda3d/interrogate.git
-    GIT_TAG 47ff6da7705062b1bc7f9847fc8ca0c92b82e6eb
+    GIT_REPOSITORY https://github.com/rbroderi/interrogate.git
+    GIT_TAG 727995312bc7089fd8c43a0eea84de103ed0c003
 
     PREFIX ${_interrogate_dir}
     CMAKE_ARGS
