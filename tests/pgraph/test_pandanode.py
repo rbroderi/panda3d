@@ -223,6 +223,77 @@ def test_node_tag_cycle_shared_tags():
     copy.clear_python_tag('self')
 
 
+@pytest.mark.parametrize("cls_name", ["GeomNode", "ModelNode", "CollisionNode"])
+@pytest.mark.parametrize("num_wrappers", [1, 2])
+def test_node_tag_cycle_subclass(cls_name, num_wrappers):
+    # C++ subclasses of PandaNode take part in garbage collection too.
+    import panda3d.core
+    cls = getattr(panda3d.core, cls_name)
+
+    with gc_disabled():
+        node = cls('test_node_tag_cycle_subclass')
+        assert gc.is_tracked(node)
+        node.set_python_tag('self', node)
+        if num_wrappers > 1:
+            node.set_python_tag('self2', other_wrapper(node))
+        node = None
+
+        gc.collect()
+        assert in_garbage('test_node_tag_cycle_subclass')
+
+
+def test_node_tag_cycle_subclass_held_by_parent():
+    from panda3d.core import GeomNode
+
+    gc.collect()
+    parent = PandaNode('parent')
+    node = GeomNode('test_node_tag_cycle_subclass_held_by_parent')
+    parent.add_child(node)
+    node.set_python_tag('self', node)
+    node = None
+
+    gc.collect()
+    child = parent.get_child(0)
+    assert child.get_python_tag('self').this == child.this
+    parent.remove_all_children()
+
+
+def test_node_path_tag_cycle():
+    from panda3d.core import NodePath
+
+    with gc_disabled():
+        path = NodePath('test_node_path_tag_cycle')
+        assert gc.is_tracked(path)
+        path.set_python_tag('self', path)
+        path = None
+
+        gc.collect()
+        assert any(isinstance(g, NodePath) and g.name == 'test_node_path_tag_cycle'
+                   for g in gc.garbage)
+
+
+def test_node_path_tag_cycle_held():
+    # Another NodePath to the same node, or a parent, keeps the tags alive.
+    from panda3d.core import NodePath
+
+    gc.collect()
+    path = NodePath('test_node_path_tag_cycle_held')
+    path.set_python_tag('self', path)
+    other = NodePath(path)
+    path = None
+
+    root = NodePath('root')
+    child = root.attach_new_node('child')
+    child.set_python_tag('self', child)
+    child = None
+
+    gc.collect()
+    assert other.get_python_tag('self').name == 'test_node_path_tag_cycle_held'
+    assert root.get_child(0).get_python_tag('self').name == 'child'
+    other.clear_python_tag('self')
+    root.get_child(0).clear_python_tag('self')
+
+
 def test_node_subclass_persistent():
     class NodeSubclass(PandaNode):
         pass
