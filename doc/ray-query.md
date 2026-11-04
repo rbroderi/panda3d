@@ -63,7 +63,11 @@ Choices:
   model many times, a ship class) costs one BLAS.  A helper that walks a
   NodePath's GeomNodes into meshes and instances belongs to the
   application for now (the game's `ray_scene.py`), because gobj cannot see
-  pgraph; a `NodePath`-level helper could go in pgraph later.
+  pgraph.  Keeping the instances where their nodes are is `RayTraceFollower`
+  (pgraphnodes): `follower.add_instance(i, node_path)` for each, then
+  `follower.update()` each frame moves only the instances whose nodes moved
+  (relative to its `relative_to`), passing over a node whose net
+  TransformState is the one it had last time, and returns how many moved.
 - **Plain triangles are built from the Geom's own buffers.**  A static Geom
   of GeomTriangles with float positions is kept by reference: the GSG
   builds from its vertex and index buffers (one geometry per primitive), so

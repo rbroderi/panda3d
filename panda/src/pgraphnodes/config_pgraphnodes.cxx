@@ -20,6 +20,7 @@
 #include "computeNode.h"
 #include "meshDrawNode.h"
 #include "upscaleNode.h"
+#include "rayTraceFollower.h"
 #include "directionalLight.h"
 #include "fadeLodNode.h"
 #include "fadeLodNodeData.h"
@@ -122,6 +123,7 @@ init_libpgraphnodes() {
   ComputeNode::init_type();
   MeshDrawNode::init_type();
   UpscaleNode::init_type();
+  RayTraceFollower::init_type();
   DirectionalLight::init_type();
   FadeLODNode::init_type();
   FadeLODNodeData::init_type();

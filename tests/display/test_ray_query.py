@@ -140,6 +140,21 @@ def test_ray_query_instance_moved(vk_gsg):
     assert trace(vk_gsg, scene)[0][0] == -1
 
 
+def test_ray_query_follower_moved(vk_gsg):
+    mesh = core.RayTraceMesh("quad")
+    mesh.add_geom(make_quad(0))
+    scene = core.RayTraceScene("scene")
+    root = core.NodePath("root")
+    node = root.attach_new_node("node")
+    follower = core.RayTraceFollower(scene, root)
+    follower.add_instance(scene.add_instance(mesh), node)
+    assert trace(vk_gsg, scene)[0][0] == pytest.approx(10.0)
+
+    node.set_z(4)
+    assert follower.update() == 1
+    assert trace(vk_gsg, scene)[0][0] == pytest.approx(6.0)
+
+
 def test_ray_query_closest_instance(vk_gsg):
     mesh = core.RayTraceMesh("quad")
     mesh.add_geom(make_quad(0))
