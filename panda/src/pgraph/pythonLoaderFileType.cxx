@@ -378,6 +378,7 @@ save_file(const Filename &path, const LoaderOptions &options,
   args[1] = DTool_CreatePyInstance((void *)&path, Dtool_Filename, false, true);
   args[2] = DTool_CreatePyInstance((void *)&options, Dtool_LoaderOptions, false, true);
   args[3] = DTool_CreatePyInstanceTyped((void *)node, Dtool_PandaNode, true, false, node->get_type_index());
+  Dtool_CountWrapper(args[3], node);
 
   PyObject *result = PythonThread::call_python_func(_save_func, args + 1, 3 | PY_VECTORCALL_ARGUMENTS_OFFSET);
   Py_DECREF(args[1]);
