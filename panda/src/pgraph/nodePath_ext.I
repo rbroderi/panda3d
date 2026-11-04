@@ -131,14 +131,3 @@ INLINE bool Extension<NodePath>::
 has_net_python_tag(PyObject *key) const {
   return !find_net_python_tag(key).is_empty();
 }
-
-/**
- * Called by Python to implement cycle detection.
- */
-/*INLINE int Extension<NodePath>::
-__traverse__(visitproc visit, void *arg) {
-  if (_this->is_empty()) {
-    return 0;
-  }
-  return invoke_extension(_this->node()).__traverse__(visit, arg);
-}*/

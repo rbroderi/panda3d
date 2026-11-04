@@ -43,11 +43,11 @@ public:
 
   // This is defined to implement cycle detection in Python tags.
   int __traverse__(visitproc visit, void *arg);
+  static int traverse_python_tags(const PandaNode *node, visitproc visit, void *arg);
 
 private:
   PyObject *do_get_python_tags();
 
-  static int traverse_python_tags(const PandaNode *node, visitproc visit, void *arg);
   static void update_wrapper_group(const PandaNode *node);
   static int wrapper_group_traverse(PyObject *self, visitproc visit, void *arg);
   static void wrapper_group_dealloc(PyObject *self);
