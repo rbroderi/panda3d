@@ -1,5 +1,6 @@
 #include "nodeCullCallbackData.cxx"
 #include "pointLight.cxx"
+#include "rayTraceFollower.cxx"
 #include "rectangleLight.cxx"
 #include "sceneGraphAnalyzer.cxx"
 #include "selectiveChildNode.cxx"
