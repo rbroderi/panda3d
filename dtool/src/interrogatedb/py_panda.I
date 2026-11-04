@@ -111,6 +111,30 @@ DTool_PyInit_Finalize(PyObject *self, void *local_this, Dtool_PyTypedObject *typ
 }
 
 /**
+ * Called for classes that define __add_wrapper__(), __remove_wrapper__() and
+ * __get_num_wrappers__(), after creating a wrapper that owns a reference to
+ * obj.  These classes count the wrappers that own a reference to them, so that
+ * their __traverse__ can tell whether all references are held by wrappers
+ * (and may be part of a reference cycle) even if there are several wrappers.
+ *
+ * Only wrappers of types that take part in garbage collection are counted;
+ * the generated deallocator of those calls __remove_wrapper__().  A wrapper
+ * that was already counted (eg. a persistent wrapper) is not counted again.
+ */
+template<class T> INLINE PyObject *
+Dtool_CountWrapper(PyObject *wrapper, const T *obj) {
+  // If obj is null, the wrapper is None.
+  Dtool_PyInstDef *inst = (Dtool_PyInstDef *)wrapper;
+  if (obj != nullptr && inst != nullptr &&
+      inst->_memory_rules && !inst->_counted &&
+      PyType_HasFeature(Py_TYPE(wrapper), Py_TPFLAGS_HAVE_GC)) {
+    inst->_counted = true;
+    obj->__add_wrapper__();
+  }
+  return wrapper;
+}
+
+/**
  * The following functions wrap an arbitrary C++ value into a PyObject.
  */
 ALWAYS_INLINE PyObject *Dtool_WrapValue(int value) {

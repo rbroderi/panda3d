@@ -59,6 +59,7 @@ __deepcopy__(PyObject *self, PyObject *memo) const {
   dupe = DTool_CreatePyInstanceTyped
     ((void *)node_dupe.p(), Dtool_PandaNode, true, false,
      node_dupe->get_type_index());
+  Dtool_CountWrapper(dupe, node_dupe.p());
 
   if (PyDict_SetItem(memo, self, dupe) != 0) {
     Py_DECREF(dupe);

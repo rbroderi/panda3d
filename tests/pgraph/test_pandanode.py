@@ -258,6 +258,23 @@ def test_node_tag_cycle_subclass_held_by_parent():
     parent.remove_all_children()
 
 
+@pytest.mark.parametrize("num_wrappers", [1, 2])
+def test_node_tag_cycle_deepcopy(num_wrappers):
+    # The wrapper returned by copy.deepcopy() is made by extension code.
+    import copy
+
+    with gc_disabled():
+        node = copy.deepcopy(PandaNode('test_node_tag_cycle_deepcopy'))
+        assert gc.is_tracked(node)
+        node.set_python_tag('self', node)
+        if num_wrappers > 1:
+            node.set_python_tag('self2', other_wrapper(node))
+        node = None
+
+        gc.collect()
+        assert in_garbage('test_node_tag_cycle_deepcopy')
+
+
 def test_node_path_tag_cycle():
     from panda3d.core import NodePath
 
