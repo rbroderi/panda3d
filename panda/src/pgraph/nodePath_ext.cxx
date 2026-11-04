@@ -181,6 +181,7 @@ get_tags() const {
   PT(PandaNode) node = _this->node();
   PyObject *py_node = DTool_CreatePyInstanceTyped
     ((void *)node.p(), Dtool_PandaNode, true, false, node->get_type_index());
+  Dtool_CountWrapper(py_node, node.p());
 
   // DTool_CreatePyInstanceTyped() steals a C++ reference.
   node.cheat() = nullptr;
