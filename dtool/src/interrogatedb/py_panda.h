@@ -64,6 +64,10 @@ struct Dtool_PyInstDef {
 
   // True if this is a "const" pointer.
   bool _is_const;
+
+  // True if this wrapper owns a reference and has been reported to the
+  // C++ object with __add_wrapper__() (see interrogate's Dtool_CountWrapper).
+  bool _counted;
 };
 
 // The Class Definition Structor For a Dtool python type.

@@ -217,6 +217,16 @@ PUBLISHED:
 
   PY_EXTENSION(int __traverse__(visitproc visit, void *arg));
 
+#ifdef HAVE_PYTHON
+public:
+  // These are called by the Python bindings to count the Python wrappers
+  // that own a reference to this node; see __traverse__.
+  INLINE void __add_wrapper__() const;
+  INLINE void __remove_wrapper__() const;
+  INLINE int __get_num_wrappers__() const;
+#endif
+
+PUBLISHED:
   INLINE bool has_tags() const;
   void copy_tags(PandaNode *other);
   void list_tags(std::ostream &out, std::string_view separator = "\n") const;
@@ -554,6 +564,18 @@ private:
     virtual ~PythonTagData() {};
   };
   PT(PythonTagData) _python_tag_data;
+
+#ifdef HAVE_PYTHON
+  // The number of Python wrappers that own a reference to this node.  While
+  // there are two or more and the node has Python tags, the node also holds
+  // one reference per wrapper to a small Python object that the wrappers
+  // report to the garbage collector instead of the tags; see __traverse__.
+  mutable patomic<int> _num_python_wrappers {0};
+  mutable patomic<PyObject *> _python_wrapper_group {nullptr};
+
+  // Set by the Python bindings; creates, adjusts or releases the above.
+  static void (*_update_python_wrapper_group)(const PandaNode *node);
+#endif
 
   unsigned int _unexpected_change_flags = 0;
 
