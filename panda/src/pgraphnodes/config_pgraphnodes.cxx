@@ -18,6 +18,7 @@
 #include "callbackNode.h"
 #include "callbackObject.h"
 #include "computeNode.h"
+#include "rayTraceFollower.h"
 #include "directionalLight.h"
 #include "fadeLodNode.h"
 #include "fadeLodNodeData.h"
@@ -118,6 +119,7 @@ init_libpgraphnodes() {
   CallbackNode::init_type();
   CallbackObject::init_type();
   ComputeNode::init_type();
+  RayTraceFollower::init_type();
   DirectionalLight::init_type();
   FadeLODNode::init_type();
   FadeLODNodeData::init_type();
