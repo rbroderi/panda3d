@@ -328,6 +328,10 @@ make_shader_input(const ShaderType *type, CPT_InternalName name) {
     }
     return new ShaderBufferBinding(std::move(name), min_size);
   }
+  else if (type->as_acceleration_structure() != nullptr) {
+    // An AccelerationStructure is a kind of ShaderBuffer.
+    return new ShaderBufferBinding(std::move(name), 0);
+  }
   else if (const ShaderType::Matrix *matrix = type->as_matrix()) {
     // For historical reasons, we handle non-arrayed matrices differently,
     // which has the additional feature that they can be passed in as a

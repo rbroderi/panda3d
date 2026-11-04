@@ -85,6 +85,7 @@ PUBLISHED:
   class Sampler;
   class SampledImage;
   class StorageBuffer;
+  class AccelerationStructure;
 
   // Fundamental types, as singletons, defined as upper-case because they are
   // essentially enum-like constants (ie. ShaderType.FLOAT from Python).
@@ -96,6 +97,7 @@ PUBLISHED:
   static const ShaderType::Scalar *const FLOAT;
   static const ShaderType::Scalar *const DOUBLE;
   static const ShaderType *const SAMPLER;
+  static const ShaderType *const ACCELERATION_STRUCTURE;
 #else
   static const ShaderType::Void *VOID;
   static const ShaderType::Scalar *BOOL;
@@ -104,6 +106,7 @@ PUBLISHED:
   static const ShaderType::Scalar *FLOAT;
   static const ShaderType::Scalar *DOUBLE;
   static const ShaderType::Sampler *SAMPLER;
+  static const ShaderType::AccelerationStructure *ACCELERATION_STRUCTURE;
 #endif
 
   MAKE_PROPERTY(align_bytes, get_align_bytes);
@@ -135,6 +138,7 @@ public:
   virtual const Sampler *as_sampler() const { return nullptr; }
   virtual const SampledImage *as_sampled_image() const { return nullptr; }
   virtual const StorageBuffer *as_storage_buffer() const { return nullptr; }
+  virtual const AccelerationStructure *as_acceleration_structure() const { return nullptr; }
 
   static void register_with_read_factory();
   virtual bool require_fully_complete() const override;
@@ -674,6 +678,38 @@ private:
 protected:
   virtual void write_datagram(BamWriter *manager, Datagram &dg) override;
   virtual int complete_pointers(TypedWritable **plist, BamReader *manager) override;
+  static TypedWritable *make_from_bam(const FactoryParams &params);
+
+public:
+  static TypeHandle get_class_type() {
+    return _type_handle;
+  }
+  virtual TypeHandle get_type() const override {
+    return get_class_type();
+  }
+
+private:
+  static TypeHandle _type_handle;
+
+  friend class ShaderType;
+};
+
+/**
+ * Ray tracing acceleration structure (accelerationStructureEXT in GLSL).
+ * Not exposed; Python users can check for ShaderType.ACCELERATION_STRUCTURE.
+ */
+class EXPCL_PANDA_GOBJ ShaderType::AccelerationStructure final : public ShaderType::Resource {
+private:
+  AccelerationStructure() = default;
+
+public:
+  virtual void output(std::ostream &out) const override;
+  virtual void output_signature(std::ostream &out) const override;
+  virtual int compare_to_impl(const ShaderType &other) const override;
+
+  const AccelerationStructure *as_acceleration_structure() const override { return this; }
+
+protected:
   static TypedWritable *make_from_bam(const FactoryParams &params);
 
 public:

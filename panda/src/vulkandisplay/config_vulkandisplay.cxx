@@ -77,6 +77,14 @@ ConfigVariableBool vulkan_validation
           "the Vulkan API, but makes every call much slower, so it is off by "
           "default even where the layer is installed."));
 
+ConfigVariableBool vulkan_ray_query
+("vulkan-ray-query", true,
+ PRC_DESC("If this is set to true, and the video card supports ray queries "
+          "(VK_KHR_ray_query and VK_KHR_acceleration_structure), they are "
+          "enabled, so that shaders can trace rays against a RayTraceScene.  "
+          "This also makes every memory allocation addressable from shaders, "
+          "which ray tracing needs."));
+
 #define VK_ERROR_INVALID_SHADER_NV -1000012000
 
 /**

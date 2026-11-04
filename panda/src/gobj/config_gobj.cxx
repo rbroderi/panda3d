@@ -48,6 +48,8 @@
 #include "textureReloadRequest.h"
 #include "textureStage.h"
 #include "textureContext.h"
+#include "rayTraceMesh.h"
+#include "rayTraceScene.h"
 #include "samplerContext.h"
 #include "samplerState.h"
 #include "shader.h"
@@ -543,6 +545,13 @@ ConfigVariableBool stereo_lens_old_convergence
           "old, incorrect behavior, this may be set to 'true' to switch "
           "back to the old calculation."));
 
+ConfigVariableBool ray_trace_reference_geoms
+("ray-trace-reference-geoms", true,
+ PRC_DESC("If this is true, a RayTraceMesh builds plain triangle Geoms "
+          "straight from their own vertex and index buffers.  Set it false "
+          "to have it copy their triangles instead, as it does other "
+          "Geoms."));
+
 ConfigureFn(config_gobj) {
   AnimateVerticesRequest::init_type();
   BufferContext::init_type();
@@ -583,6 +592,8 @@ ConfigureFn(config_gobj) {
   PerspectiveLens::init_type();
   PreparedGraphicsObjects::EnqueuedObject::init_type();
   QueryContext::init_type();
+  RayTraceMesh::init_type();
+  RayTraceScene::init_type();
   SamplerContext::init_type();
   SamplerState::init_type();
   Shader::init_type();
