@@ -42,6 +42,10 @@ TypeHandle PandaNode::BamReaderAuxDataDown::_type_handle;
 
 PandaNode::SceneRootFunc *PandaNode::_scene_root_func;
 
+#ifdef HAVE_PYTHON
+void (*PandaNode::_update_python_wrapper_group)(const PandaNode *node);
+#endif
+
 UpdateSeq PandaNode::_reset_prev_transform_seq;
 DrawMask PandaNode::_overall_bit = DrawMask::bit(31);
 
@@ -113,6 +117,11 @@ PandaNode::
   }
 #endif  // NDEBUG
   */
+
+#ifdef HAVE_PYTHON
+  // Each wrapper that was counted owned a reference to this node.
+  nassertv(_python_wrapper_group.load() == nullptr);
+#endif
 
   remove_all_children();
 }

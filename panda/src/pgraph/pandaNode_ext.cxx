@@ -166,6 +166,10 @@ clear_python_tag(PyObject *key) {
     _this->_python_tag_data.clear();
   }
   Py_END_CRITICAL_SECTION();
+
+  if (_this->_python_tag_data == nullptr) {
+    update_wrapper_group(_this);
+  }
 }
 
 /**
@@ -182,7 +186,9 @@ get_python_tag_keys() const {
 }
 
 /**
- * Called by Python to implement cycle detection.
+ * Called by Python to implement cycle detection.  The bindings only call this
+ * from a wrapper that was counted with __add_wrapper__(), and only when every
+ * reference to this node is held by such a wrapper.
  */
 int Extension<PandaNode>::
 __traverse__(visitproc visit, void *arg) {
@@ -191,10 +197,17 @@ __traverse__(visitproc visit, void *arg) {
   // quite expensive, so I'd rather not do it unless we had some optimization
   // that would allow us to quickly find out whether there are children with
   // Python tags.
-  if (_this->_python_tag_data != nullptr) {
-    Py_VISIT(((PythonTagDataImpl *)_this->_python_tag_data.p())->_dict);
+  if (_this->_num_python_wrappers.load(std::memory_order_relaxed) > 1) {
+    // Each of the wrappers will report a reference to the node's tags, but
+    // the node only holds one.  Instead, each of them reports a reference to
+    // the wrapper group, of which the node holds one per wrapper, and which
+    // in turn reports the tags.  That way, the tags stay alive as long as any
+    // one of the wrappers is reachable.
+    PyObject *group = _this->_python_wrapper_group.load(std::memory_order_relaxed);
+    Py_VISIT(group);
+    return 0;
   }
-  return 0;
+  return traverse_python_tags(_this, visit, arg);
 }
 
 /**
@@ -205,11 +218,148 @@ do_get_python_tags() {
   if (_this->_python_tag_data == nullptr) {
     _this->_python_tag_data = new PythonTagDataImpl;
 
+    // If the node already has several wrappers, it now needs a group.
+    PandaNode::_update_python_wrapper_group = &update_wrapper_group;
+    if (_this->_num_python_wrappers.load(std::memory_order_relaxed) > 1) {
+      update_wrapper_group(_this);
+    }
+
   } else if (_this->_python_tag_data->get_ref_count() > 1) {
     // Copy-on-write.
     _this->_python_tag_data = new PythonTagDataImpl(*(PythonTagDataImpl *)_this->_python_tag_data.p());
   }
   return ((PythonTagDataImpl *)_this->_python_tag_data.p())->_dict;
+}
+
+/**
+ * Reports the node's Python tags to the garbage collector.
+ */
+int Extension<PandaNode>::
+traverse_python_tags(const PandaNode *node, visitproc visit, void *arg) {
+  // If the tags are shared with a copy of the node (they are copied on
+  // write), we can't tell whether that copy is alive, so we don't report
+  // them.
+  PandaNode::PythonTagData *tag_data = node->_python_tag_data;
+  if (tag_data != nullptr && tag_data->get_ref_count() == 1) {
+    Py_VISIT(((PythonTagDataImpl *)tag_data)->_dict);
+  }
+  return 0;
+}
+
+#ifndef CPPPARSER
+namespace {
+  // While a node with Python tags has two or more wrappers, the node holds
+  // one reference to one of these for each wrapper.
+  struct WrapperGroup {
+    PyObject_HEAD
+    const PandaNode *_node;
+    int _refs;
+  };
+
+  PyTypeObject *wrapper_group_type = nullptr;
+
+#ifdef Py_GIL_DISABLED
+  PyMutex wrapper_group_lock = {0};
+#endif
+}
+#endif  // CPPPARSER
+
+/**
+ * Called when a wrapper of the given node is added or removed, or the node's
+ * tags are created or removed, while the node has two or more wrappers or a
+ * wrapper group.  Makes the node hold one reference to its wrapper group per
+ * wrapper while it has two or more wrappers and Python tags, and releases the
+ * group otherwise.
+ */
+void Extension<PandaNode>::
+update_wrapper_group(const PandaNode *node) {
+#ifdef Py_GIL_DISABLED
+  PyMutex_Lock(&wrapper_group_lock);
+#endif
+
+  int num_refs = 0;
+  if (node->_python_tag_data != nullptr) {
+    num_refs = node->_num_python_wrappers.load(std::memory_order_relaxed);
+    if (num_refs < 2) {
+      num_refs = 0;
+    }
+  }
+
+  WrapperGroup *group = (WrapperGroup *)node->_python_wrapper_group.load(std::memory_order_relaxed);
+  if (group == nullptr && num_refs > 0) {
+    if (wrapper_group_type == nullptr) {
+      static PyType_Slot slots[] = {
+        {Py_tp_traverse, (void *)&wrapper_group_traverse},
+        {Py_tp_dealloc, (void *)&wrapper_group_dealloc},
+        {0, nullptr},
+      };
+      static PyType_Spec spec = {
+        "panda3d.core.PandaNode._WrapperGroup",
+        sizeof(WrapperGroup),
+        0,
+        Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,
+        slots,
+      };
+      wrapper_group_type = (PyTypeObject *)PyType_FromSpec(&spec);
+    }
+    if (wrapper_group_type != nullptr) {
+      group = PyObject_GC_New(WrapperGroup, wrapper_group_type);
+    }
+    if (group != nullptr) {
+      group->_node = node;
+      group->_refs = 1;
+      node->_python_wrapper_group.store((PyObject *)group, std::memory_order_relaxed);
+      PyObject_GC_Track((PyObject *)group);
+    } else {
+      // Without a group, __traverse__ reports nothing, so the node's tags
+      // can't be collected, but they stay alive.
+      PyErr_Clear();
+    }
+  }
+
+  if (group != nullptr) {
+    while (group->_refs < num_refs) {
+      Py_INCREF((PyObject *)group);
+      ++group->_refs;
+    }
+    if (group->_refs > num_refs) {
+      int release = group->_refs - num_refs;
+      group->_refs = num_refs;
+      if (num_refs == 0) {
+        node->_python_wrapper_group.store(nullptr, std::memory_order_relaxed);
+      }
+      // The last of these deletes the group.
+      while (release-- > 0) {
+        Py_DECREF((PyObject *)group);
+      }
+    }
+  }
+
+#ifdef Py_GIL_DISABLED
+  PyMutex_Unlock(&wrapper_group_lock);
+#endif
+}
+
+/**
+ * Reports the tags of the group's node to the garbage collector.
+ */
+int Extension<PandaNode>::
+wrapper_group_traverse(PyObject *self, visitproc visit, void *arg) {
+#if PY_VERSION_HEX >= 0x03090000
+  Py_VISIT(Py_TYPE(self));
+#endif
+  return traverse_python_tags(((WrapperGroup *)self)->_node, visit, arg);
+}
+
+/**
+ * Deletes a wrapper group, once the node has released all its references.
+ */
+void Extension<PandaNode>::
+wrapper_group_dealloc(PyObject *self) {
+  PyTypeObject *type = Py_TYPE(self);
+  PyObject_GC_UnTrack(self);
+  PyObject_GC_Del(self);
+  Py_DECREF((PyObject *)type);
 }
 
 /**

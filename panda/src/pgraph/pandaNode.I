@@ -421,6 +421,41 @@ has_tags() const {
   return false;
 }
 
+#ifdef HAVE_PYTHON
+/**
+ * Called by the Python bindings when a Python wrapper that owns a reference
+ * to this node has been created.
+ */
+INLINE void PandaNode::
+__add_wrapper__() const {
+  int num_wrappers = _num_python_wrappers.fetch_add(1, std::memory_order_relaxed) + 1;
+  if (num_wrappers >= 2 &&
+      (_python_tag_data != nullptr || _python_wrapper_group.load(std::memory_order_relaxed) != nullptr)) {
+    _update_python_wrapper_group(this);
+  }
+}
+
+/**
+ * Called by the Python bindings when a Python wrapper that was reported to
+ * __add_wrapper__() is being destroyed.
+ */
+INLINE void PandaNode::
+__remove_wrapper__() const {
+  _num_python_wrappers.fetch_sub(1, std::memory_order_relaxed);
+  if (_python_wrapper_group.load(std::memory_order_relaxed) != nullptr) {
+    _update_python_wrapper_group(this);
+  }
+}
+
+/**
+ * Returns the number of Python wrappers that own a reference to this node.
+ */
+INLINE int PandaNode::
+__get_num_wrappers__() const {
+  return _num_python_wrappers.load(std::memory_order_relaxed);
+}
+#endif  // HAVE_PYTHON
+
 /**
  * Lists all the nodes at and below the current path hierarchically.
  */
