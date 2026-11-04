@@ -75,9 +75,23 @@ def test_node_tag_cycle():
             assert False
 
 
-@pytest.mark.xfail
+def other_wrapper(node):
+    # Returns another wrapper for the same node, by temporarily attaching a
+    # child.
+    child = PandaNode('child')
+    node.add_child(child)
+    node2 = child.get_parent(0)
+    node.remove_child(0)
+    assert node2 is not node
+    assert node2.this == node.this
+    return node2
+
+
+def in_garbage(name):
+    return any(isinstance(g, PandaNode) and g.name == name for g in gc.garbage)
+
+
 def test_node_tag_cycle_multiple_wrappers():
-    # Doesn't yet work since the traverse checks that the refcount is 1.
     with gc_disabled():
         node = PandaNode('test_node_tag_cycle_multiple_wrappers')
         node.set_python_tag('self', node)
@@ -107,6 +121,106 @@ def test_node_tag_cycle_multiple_wrappers():
                 break
         else:
             pytest.fail('not found in garbage')
+
+
+def test_node_tag_cycle_wrapper_removed():
+    # A second wrapper goes away before the cycle is collected.
+    with gc_disabled():
+        node = PandaNode('test_node_tag_cycle_wrapper_removed')
+        node2 = other_wrapper(node)
+        node.set_python_tag('self', node)
+        node2 = None
+
+        node = None
+        gc.collect()
+        assert in_garbage('test_node_tag_cycle_wrapper_removed')
+
+
+def test_node_tag_cycle_one_wrapper_left():
+    # Two wrappers are in the cycle; one of them is let go first.
+    with gc_disabled():
+        node = PandaNode('test_node_tag_cycle_one_wrapper_left')
+        node2 = other_wrapper(node)
+        node.set_python_tag('self', node)
+        node.set_python_tag('self2', node2)
+        node.clear_python_tag('self2')
+        node2 = None
+
+        node = None
+        gc.collect()
+        assert in_garbage('test_node_tag_cycle_one_wrapper_left')
+
+
+def test_node_tag_cycle_other_wrapper_alive():
+    # The cycle only goes through one wrapper, but another one is still
+    # reachable, so the tags must survive a real collection.
+    gc.collect()
+    node = PandaNode('test_node_tag_cycle_other_wrapper_alive')
+    node2 = other_wrapper(node)
+    node.set_python_tag('self', node)
+    node = None
+
+    gc.collect()
+    assert node2.get_python_tag('self') is not None
+    assert node2.get_python_tag('self').this == node2.this
+    node2.clear_python_tag('self')
+
+
+@pytest.mark.parametrize("num_wrappers", [1, 2])
+def test_node_tag_cycle_held_by_parent(num_wrappers):
+    # The node is also held by C++ (a parent), so its tags must survive.
+    gc.collect()
+    parent = PandaNode('parent')
+    node = PandaNode('test_node_tag_cycle_held_by_parent')
+    parent.add_child(node)
+    node.set_python_tag('self', node)
+    if num_wrappers > 1:
+        node.set_python_tag('self2', other_wrapper(node))
+    node = None
+
+    gc.collect()
+    child = parent.get_child(0)
+    assert child.get_python_tag('self') is not None
+    assert child.get_python_tag('self').this == child.this
+    if num_wrappers > 1:
+        assert child.get_python_tag('self2').this == child.this
+
+    parent.remove_all_children()
+
+
+def test_node_tag_cycle_held_by_node_path():
+    # The node is held by a NodePath, which is held in C++.
+    from panda3d.core import NodePath, NodePathCollection
+
+    gc.collect()
+    paths = NodePathCollection()
+    node = PandaNode('test_node_tag_cycle_held_by_node_path')
+    paths.add_path(NodePath(node))
+    node.set_python_tag('self', node)
+    node.set_python_tag('self2', other_wrapper(node))
+    node = None
+
+    gc.collect()
+    node = paths.get_path(0).node()
+    assert node.get_python_tag('self').this == node.this
+    assert node.get_python_tag('self2').this == node.this
+    node.clear_python_tag('self')
+    node.clear_python_tag('self2')
+
+
+def test_node_tag_cycle_shared_tags():
+    # A copy shares the tags until either node changes them, so the tags
+    # can't be collected while the copy is alive.
+    gc.collect()
+    node = PandaNode('test_node_tag_cycle_shared_tags')
+    node.set_python_tag('self', node)
+    copy = node.make_copy()
+    node = None
+
+    gc.collect()
+    assert copy.get_python_tag('self') is not None
+    assert copy.get_python_tag('self').name == 'test_node_tag_cycle_shared_tags'
+    copy.clear_python_tag('self')
 
 
 def test_node_subclass_persistent():
