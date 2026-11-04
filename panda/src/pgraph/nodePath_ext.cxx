@@ -12,6 +12,7 @@
  */
 
 #include "nodePath_ext.h"
+#include "pandaNode_ext.h"
 #include "typedWritable_ext.h"
 #include "shaderInput_ext.h"
 #include "shaderAttrib.h"
@@ -204,6 +205,29 @@ find_net_python_tag(PyObject *key) const {
   }
   NodePath parent = _this->get_parent();
   return invoke_extension(&parent).find_net_python_tag(key);
+}
+
+/**
+ * Called by Python to implement cycle detection.  The bindings only call this
+ * for a wrapper that owns its NodePath.
+ */
+int Extension<NodePath>::
+__traverse__(visitproc visit, void *arg) {
+  // The NodePath keeps its node alive through a NodePathComponent.  If this
+  // NodePath holds the only reference to the component, and the component
+  // holds the only reference to the node, this wrapper is the only owner of
+  // the node, so it may report the node's Python tags.  (If the node also
+  // has a PandaNode wrapper, that holds a reference too, and nothing is
+  // reported.)
+  NodePathComponent *comp = _this->_head;
+  if (comp == nullptr || comp->get_ref_count() != 1) {
+    return 0;
+  }
+  PandaNode *node = comp->get_node();
+  if (node == nullptr || node->get_ref_count() != 1) {
+    return 0;
+  }
+  return Extension<PandaNode>::traverse_python_tags(node, visit, arg);
 }
 
 /**
