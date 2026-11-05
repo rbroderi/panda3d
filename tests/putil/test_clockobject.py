@@ -47,6 +47,22 @@ def test_clock_get_dt(clockobj):
     assert clockobj.get_dt() == second_tick - first_tick
 
 
+def test_clock_copy_keeps_forced_time(clockobj):
+    # The frame time of a forced clock is reckoned from an epoch, which a copy
+    # of its cycled data must keep: the pipeline copies it every frame when
+    # it is threaded.
+    from panda3d.core import ClockObject
+
+    clockobj.set_mode(ClockObject.M_forced)
+    clockobj.set_frame_rate(1000)
+    clockobj.set_frame_time(5.0)
+    copy = ClockObject(clockobj)
+    clockobj.tick()
+    copy.tick()
+    assert abs(copy.get_frame_time() - clockobj.get_frame_time()) < EPSILON
+    assert abs(clockobj.get_frame_time() - 5.001) < EPSILON
+
+
 def test_clock_reset(clockobj):
     clockobj.reset()
     assert clockobj.get_dt() == 0

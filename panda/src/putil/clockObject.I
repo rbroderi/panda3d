@@ -228,6 +228,7 @@ INLINE ClockObject::CData::
 CData(const ClockObject::CData &copy) :
   _frame_count(copy._frame_count),
   _reported_frame_time(copy._reported_frame_time),
+  _reported_frame_time_epoch(copy._reported_frame_time_epoch),
   _dt(copy._dt)
 {
 }
